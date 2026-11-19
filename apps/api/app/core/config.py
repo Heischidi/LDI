@@ -48,7 +48,11 @@ class Settings(BaseSettings):
 
     # CORS
     CORS_ORIGINS: Annotated[list[str], NoDecode] = Field(
-        default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
+        default_factory=lambda: [
+            "https://ldi-seven.vercel.app",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
     )
 
     @field_validator("CORS_ORIGINS", mode="before")

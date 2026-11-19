@@ -57,13 +57,13 @@ Commit and push this workspace to a private or public GitHub repository so Verce
    - **Framework Preset**: Next.js (auto-detected)
    - Add **Environment Variable**:
      - `NEXT_PUBLIC_API_URL` = `https://ldi-api.onrender.com`
-3. Deploy and copy your live Vercel URL (e.g. `https://leaders-doc-intel.vercel.app`).
+3. Deploy and copy your live Vercel URL (`https://ldi-seven.vercel.app`).
 
 ---
 
 ## Step 5 — Link CORS & Change Default Passwords
 
 1. In Render → `ldi-api` → **Environment**, set:
-   - `CORS_ORIGINS` = `https://<YOUR-VERCEL-DOMAIN>.vercel.app,http://localhost:3000`
+   - `CORS_ORIGINS` = `https://ldi-seven.vercel.app,http://localhost:3000`
 2. Save changes (Render restarts with the updated CORS origin).
 3. Open your live Vercel URL and sign in with the default Super Admin (`superadmin@leaders.edu` / `LeadersAdmin!2026`), then **immediately reset all default staff passwords** in Staff Management for production security.
