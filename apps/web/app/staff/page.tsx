@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Shield, UserCheck, UserPlus, UserX } from "lucide-react";
+import { KeyRound, Shield, UserCheck, UserPlus, UserX } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { ldiApi } from "@/lib/api-client";
@@ -18,6 +18,9 @@ export default function StaffManagementPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [roleName, setRoleName] = useState("OFFICER");
+  const [editingPasswordUserId, setEditingPasswordUserId] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const { data: users = [] } = useQuery({
@@ -32,12 +35,13 @@ export default function StaffManagementPage() {
 
   const createUserMutation = useMutation({
     mutationFn: ldiApi.createUser,
-    onSuccess: () => {
+    onSuccess: (created) => {
       setEmail("");
       setPassword("");
       setFirstName("");
       setLastName("");
       setErrorMsg(null);
+      setStatusMsg(`Created staff account for ${created.email}.`);
       qc.invalidateQueries({ queryKey: ["staff-users"] });
       qc.invalidateQueries({ queryKey: ["audit-logs"] });
     },
@@ -51,6 +55,20 @@ export default function StaffManagementPage() {
       qc.invalidateQueries({ queryKey: ["staff-users"] });
       qc.invalidateQueries({ queryKey: ["audit-logs"] });
     },
+  });
+
+  const updatePasswordMutation = useMutation({
+    mutationFn: ({ id, password: pwd }: { id: string; password: string }) =>
+      ldiApi.updateUser(id, { password: pwd }),
+    onSuccess: (updated) => {
+      setEditingPasswordUserId(null);
+      setNewPassword("");
+      setErrorMsg(null);
+      setStatusMsg(`Password updated for ${updated.email}.`);
+      qc.invalidateQueries({ queryKey: ["staff-users"] });
+      qc.invalidateQueries({ queryKey: ["audit-logs"] });
+    },
+    onError: (err) => setErrorMsg(err instanceof Error ? err.message : "Failed to update password"),
   });
 
   return (
@@ -128,8 +146,13 @@ export default function StaffManagementPage() {
 
         {/* Staff Directory */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-200">
+          <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-navy">Staff Directory ({users.length})</h3>
+            {statusMsg && (
+              <span className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1 text-xs text-emerald-700 font-medium">
+                {statusMsg}
+              </span>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -169,26 +192,73 @@ export default function StaffManagementPage() {
                     <td className="px-4 py-3 text-slate-500">{formatDateTime(u.last_login_at)}</td>
                     {isSuperAdmin && (
                       <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() =>
-                            toggleActiveMutation.mutate({ id: u.id, is_active: !u.is_active })
-                          }
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded border text-xs ${
-                            u.is_active
-                              ? "border-red-200 text-red-700 hover:bg-red-50"
-                              : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                          }`}
-                        >
-                          {u.is_active ? (
-                            <>
-                              <UserX className="h-3.5 w-3.5" /> Deactivate
-                            </>
-                          ) : (
-                            <>
-                              <UserCheck className="h-3.5 w-3.5" /> Activate
-                            </>
-                          )}
-                        </button>
+                        {editingPasswordUserId === u.id ? (
+                          <div className="inline-flex items-center justify-end gap-1.5">
+                            <input
+                              type="password"
+                              placeholder="New password (8+ chars)"
+                              value={newPassword}
+                              onChange={(e) => setNewPassword(e.target.value)}
+                              className="px-2.5 py-1 text-xs rounded border border-slate-300 w-44"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updatePasswordMutation.mutate({ id: u.id, password: newPassword })
+                              }
+                              disabled={newPassword.length < 8 || updatePasswordMutation.isPending}
+                              className="px-2.5 py-1 rounded bg-brand text-white text-xs font-medium hover:bg-brand-light disabled:opacity-50"
+                            >
+                              {updatePasswordMutation.isPending ? "Saving..." : "Save"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingPasswordUserId(null);
+                                setNewPassword("");
+                              }}
+                              className="px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingPasswordUserId(u.id);
+                                setNewPassword("");
+                                setStatusMsg(null);
+                                setErrorMsg(null);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-200 text-navy hover:bg-slate-50 text-xs"
+                            >
+                              <KeyRound className="h-3.5 w-3.5" /> Change Password
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                toggleActiveMutation.mutate({ id: u.id, is_active: !u.is_active })
+                              }
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded border text-xs ${
+                                u.is_active
+                                  ? "border-red-200 text-red-700 hover:bg-red-50"
+                                  : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                              }`}
+                            >
+                              {u.is_active ? (
+                                <>
+                                  <UserX className="h-3.5 w-3.5" /> Deactivate
+                                </>
+                              ) : (
+                                <>
+                                  <UserCheck className="h-3.5 w-3.5" /> Activate
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        )}
                       </td>
                     )}
                   </tr>
