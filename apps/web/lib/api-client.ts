@@ -13,7 +13,8 @@ import type {
 } from "@/types";
 
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/+$/, "").replace(/\/api$/, "") ||
+  "http://localhost:8000";
 
 const TOKEN_KEY = "ldi_access_token";
 const REFRESH_KEY = "ldi_refresh_token";

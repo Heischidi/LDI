@@ -56,7 +56,7 @@ Commit and push this workspace to a private or public GitHub repository so Verce
    - **Root Directory**: `apps/web`
    - **Framework Preset**: Next.js (auto-detected)
    - Add **Environment Variable**:
-     - `NEXT_PUBLIC_API_URL` = `https://<YOUR-RENDER-SERVICE>.onrender.com/api`
+     - `NEXT_PUBLIC_API_URL` = `https://ldi-api.onrender.com`
 3. Deploy and copy your live Vercel URL (e.g. `https://leaders-doc-intel.vercel.app`).
 
 ---
