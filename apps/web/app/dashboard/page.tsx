@@ -1,0 +1,285 @@
+"use client";
+
+import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  FileCheck2,
+  FileWarning,
+  Plus,
+  UploadCloud,
+  Users,
+  XCircle,
+} from "lucide-react";
+import { AppShell } from "@/components/layout/app-shell";
+import { ldiApi } from "@/lib/api-client";
+import { formatDateTime, statusColorClasses } from "@/lib/utils";
+
+function HorizontalBarChart({
+  title,
+  items,
+  colorClass = "bg-navy",
+}: {
+  title: string;
+  items: Array<{ label: string; value: number }>;
+  colorClass?: string;
+}) {
+  const maxVal = Math.max(...items.map((i) => i.value), 1);
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+      <h3 className="text-sm font-semibold text-navy mb-4">{title}</h3>
+      {items.length === 0 ? (
+        <p className="text-xs text-slate-400 py-6 text-center">No database records recorded yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {items.map((item) => (
+            <div key={item.label} className="space-y-1">
+              <div className="flex justify-between text-xs font-medium text-slate-700">
+                <span className="truncate pr-2">{item.label}</span>
+                <span className="tabular-nums text-slate-900 font-semibold">{item.value}</span>
+              </div>
+              <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${colorClass}`}
+                  style={{ width: `${Math.max(4, (item.value / maxVal) * 100)}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function DashboardPage() {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["dashboard-metrics"],
+    queryFn: ldiApi.getDashboardMetrics,
+    refetchInterval: 15_000,
+  });
+
+  const kpis = data
+    ? [
+        { label: "Total Applicants", value: data.total_applicants, icon: Users, tone: "text-navy bg-navy-50" },
+        { label: "Documents Processed", value: data.total_documents_processed, icon: FileCheck2, tone: "text-brand bg-brand-muted" },
+        { label: "Currently Processing", value: data.applications_processing, icon: Clock, tone: "text-amber-700 bg-amber-50" },
+        { label: "Completed Batches", value: data.completed_batches, icon: CheckCircle2, tone: "text-emerald-700 bg-emerald-50" },
+        { label: "Missing Documents", value: data.applications_with_missing_docs, icon: FileWarning, tone: "text-amber-700 bg-amber-50" },
+        { label: "Awaiting Review", value: data.documents_awaiting_review, icon: AlertTriangle, tone: "text-amber-700 bg-amber-50" },
+        { label: "Failed Jobs", value: data.failed_processing_jobs, icon: XCircle, tone: "text-red-700 bg-red-50" },
+      ]
+    : [];
+
+  return (
+    <AppShell
+      title="Operations Dashboard"
+      subtitle="Live database metrics across applicant document intake, AI classification, and compliance checks."
+      actions={
+        <>
+          <Link
+            href="/processing"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <UploadCloud className="h-4 w-4" />
+            Bulk Upload
+          </Link>
+          <Link
+            href="/applicants?new=1"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-light"
+          >
+            <Plus className="h-4 w-4" />
+            New Applicant
+          </Link>
+        </>
+      }
+    >
+      {isLoading && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-24 rounded-xl bg-white border border-slate-200 animate-pulse" />
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-700">
+          Failed to load dashboard metrics: {error instanceof Error ? error.message : "Unknown error"}
+        </div>
+      )}
+
+      {data && (
+        <div className="space-y-6">
+          {/* KPI Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
+            {kpis.map((kpi) => {
+              const Icon = kpi.icon;
+              return (
+                <div
+                  key={kpi.label}
+                  className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col justify-between"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-500">{kpi.label}</span>
+                    <span className={`p-1.5 rounded-lg ${kpi.tone}`}>
+                      <Icon className="h-4 w-4" />
+                    </span>
+                  </div>
+                  <div className="text-2xl font-bold text-navy mt-3 tabular-nums">{kpi.value}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Visual Charts Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <HorizontalBarChart
+              title="Applicants by Destination"
+              items={data.applicants_by_destination.map((d) => ({ label: d.name, value: d.count }))}
+              colorClass="bg-navy"
+            />
+            <HorizontalBarChart
+              title="Applicants by Travel Purpose"
+              items={data.applicants_by_purpose.map((p) => ({ label: p.name, value: p.count }))}
+              colorClass="bg-brand"
+            />
+            <HorizontalBarChart
+              title="Most Frequently Missing Documents"
+              items={data.missing_document_stats.map((m) => ({
+                label: m.document_type,
+                value: m.missing_count,
+              }))}
+              colorClass="bg-amber-600"
+            />
+          </div>
+
+          {/* Documents Processed Over Time + Completion Rate */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-navy">Documents Processed Over Time</h3>
+                <span className="text-xs text-slate-500">
+                  Batch Completion Rate:{" "}
+                  <strong className="text-brand">{data.completion_rate_percent}%</strong>
+                </span>
+              </div>
+              {data.documents_over_time.length === 0 ? (
+                <p className="text-xs text-slate-400 py-8 text-center">
+                  Upload and process documents to populate daily throughput history.
+                </p>
+              ) : (
+                <div className="flex items-end gap-2 h-36 pt-4">
+                  {data.documents_over_time.map((pt) => {
+                    const max = Math.max(...data.documents_over_time.map((x) => x.count), 1);
+                    const pct = Math.max(12, Math.round((pt.count / max) * 100));
+                    return (
+                      <div key={pt.date} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+                        <span className="text-[11px] font-semibold text-navy tabular-nums">
+                          {pt.count}
+                        </span>
+                        <div className="w-full max-w-[38px] bg-slate-100 rounded-t-md h-24 flex items-end overflow-hidden">
+                          <div
+                            className="w-full bg-brand rounded-t-md transition-all"
+                            style={{ height: `${pct}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-slate-500 truncate w-full text-center">
+                          {pt.date.slice(5)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <h3 className="text-sm font-semibold text-navy mb-4">Officer Activity</h3>
+              {data.officer_activity.length === 0 ? (
+                <p className="text-xs text-slate-400 py-8 text-center">No assigned applicants yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {data.officer_activity.map((off) => (
+                    <div
+                      key={off.email}
+                      className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-slate-800 truncate">{off.name}</p>
+                        <p className="text-[11px] text-slate-500 truncate">{off.email}</p>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full bg-navy-50 text-navy text-xs font-semibold tabular-nums">
+                        {off.assigned_applicants} files
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Recent Applicants & Recent Activity */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-navy">Recent Applicants</h3>
+                <Link href="/applicants" className="text-xs font-medium text-brand hover:underline">
+                  View All
+                </Link>
+              </div>
+              {data.recent_applicants.length === 0 ? (
+                <p className="text-xs text-slate-400 py-6 text-center">No applicants created yet.</p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {data.recent_applicants.map((app) => (
+                    <Link
+                      key={app.id}
+                      href={`/applicants/${app.id}`}
+                      className="py-2.5 flex items-center justify-between hover:bg-slate-50 rounded-lg px-2 -mx-2"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">{app.full_name}</p>
+                        <p className="text-xs text-slate-500">
+                          {app.application_reference} · {app.destination} ({app.purpose})
+                        </p>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[11px] font-medium border ${statusColorClasses(app.status)}`}
+                      >
+                        {app.status}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <h3 className="text-sm font-semibold text-navy mb-4">Recent Processing Activity</h3>
+              {data.recent_activity.length === 0 ? (
+                <p className="text-xs text-slate-400 py-6 text-center">No audit events recorded yet.</p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {data.recent_activity.map((act) => (
+                    <div key={act.id} className="py-2.5 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-semibold text-slate-800">{act.action}</span>
+                        <span className="text-slate-500 ml-1.5">({act.entity_type})</span>
+                        <p className="text-[11px] text-slate-500">{act.actor_email}</p>
+                      </div>
+                      <span className="text-[11px] text-slate-400">
+                        {formatDateTime(act.created_at)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </AppShell>
+  );
+}

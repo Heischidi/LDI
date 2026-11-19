@@ -1,0 +1,432 @@
+"""Idempotent database seeder for initial roles, permissions, users, checklists, and settings."""
+
+from datetime import datetime, timezone
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.core.security import hash_password
+from app.models.entities import (
+    ApplicationCategory,
+    Destination,
+    DocumentAlias,
+    DocumentRequirement,
+    DocumentType,
+    Permission,
+    RequirementSet,
+    RequirementVersion,
+    Role,
+    SystemSetting,
+    TravelPurpose,
+    User,
+)
+
+DEFAULT_PERMISSIONS = [
+    ("applicants:read", "applicants", "View applicant records"),
+    ("applicants:write", "applicants", "Create and update applicant records"),
+    ("applicants:delete", "applicants", "Archive or delete applicant records"),
+    ("documents:upload", "documents", "Upload and process document batches"),
+    ("documents:review", "documents", "Review and override AI classifications"),
+    ("documents:approve", "documents", "Approve processed documents and folders"),
+    ("exports:download", "exports", "Generate and download organised ZIP packages and reports"),
+    ("requirements:read", "requirements", "View document requirement checklists"),
+    ("requirements:write", "requirements", "Create and modify document requirement checklists"),
+    ("reports:read", "reports", "View and export analytics reports"),
+    ("users:manage", "staff", "Manage staff accounts and role assignments"),
+    ("audit:read", "audit", "Inspect immutable security audit logs"),
+    ("settings:manage", "settings", "Configure AI providers, naming conventions, and security settings"),
+]
+
+ROLE_DEFINITIONS = {
+    "SUPER_ADMIN": (
+        "Super Administrator",
+        "Complete platform access across staff, requirements, AI providers, applicants, and audit logs.",
+        [p[0] for p in DEFAULT_PERMISSIONS],
+    ),
+    "ADMIN": (
+        "Administrator",
+        "Manage applicants, document requirements, document processing, and reporting.",
+        [
+            "applicants:read",
+            "applicants:write",
+            "applicants:delete",
+            "documents:upload",
+            "documents:review",
+            "documents:approve",
+            "exports:download",
+            "requirements:read",
+            "requirements:write",
+            "reports:read",
+        ],
+    ),
+    "OFFICER": (
+        "Document Processing Officer",
+        "Create applicants, upload document batches, review/override AI classifications, approve and export folders.",
+        [
+            "applicants:read",
+            "applicants:write",
+            "documents:upload",
+            "documents:review",
+            "documents:approve",
+            "exports:download",
+            "requirements:read",
+            "reports:read",
+        ],
+    ),
+    "VIEWER": (
+        "Viewer / Supervisor",
+        "Read-only visibility into applicants, processing results, and reports.",
+        [
+            "applicants:read",
+            "requirements:read",
+            "reports:read",
+        ],
+    ),
+}
+
+DEFAULT_DESTINATIONS = [
+    ("United Kingdom", "GB", "Europe"),
+    ("Canada", "CA", "North America"),
+    ("United States", "US", "North America"),
+    ("Australia", "AU", "Oceania"),
+    ("Germany", "DE", "Europe"),
+    ("Ireland", "IE", "Europe"),
+]
+
+DEFAULT_PURPOSES = [
+    ("Study", "STUDY", "Academic study, university admissions, and student visas"),
+    ("Tourism", "TOURISM", "Short-stay leisure and tourist travel"),
+    ("Business", "BUSINESS", "Corporate conferences, meetings, and business travel"),
+    ("Work", "WORK", "Skilled employment and work permit applications"),
+    ("Family Visit", "FAMILY_VISIT", "Visiting family members or dependants abroad"),
+    ("Immigration", "IMMIGRATION", "Permanent residency or long-term settlement pathways"),
+    ("Other", "OTHER", "Specialised or bespoke travel categories"),
+]
+
+DEFAULT_DOCUMENT_TYPES = [
+    ("INTERNATIONAL_PASSPORT", "International Passport", "IDENTITY", 1, True, 180, "International_Passport", ["Travel Passport", "Passport Bio Page", "Passport Data Page", "Nigerian Passport"]),
+    ("ADMISSION_LETTER", "Admission Letter", "ACADEMIC", 2, False, None, "Admission_Letter", ["Offer Letter", "CAS Letter", "Unconditional Offer", "University Admission Letter"]),
+    ("ACADEMIC_TRANSCRIPT", "Academic Transcript", "ACADEMIC", 3, False, None, "Academic_Transcript", ["Student Transcript", "Official Transcript", "Transcript of Records"]),
+    ("ACADEMIC_CERTIFICATES", "Academic Certificates", "ACADEMIC", 4, False, None, "Academic_Certificates", ["Degree Certificate", "WAEC Certificate", "Diploma Certificate", "Graduation Certificate"]),
+    ("BANK_STATEMENT", "Bank Statement", "FINANCIAL", 5, True, 28, "Bank_Statement", ["Statement of Account", "Account Statement", "Financial Statement"]),
+    ("BIRTH_CERTIFICATE", "Birth Certificate", "IDENTITY", 6, False, None, "Birth_Certificate", ["Certificate of Birth", "NPC Birth Certificate"]),
+    ("STATEMENT_OF_PURPOSE", "Statement of Purpose", "SUPPORTING", 7, False, None, "Statement_of_Purpose", ["Personal Statement", "Motivation Letter", "SOP"]),
+    ("ENGLISH_PROFICIENCY", "Proof of English Proficiency", "ACADEMIC", 8, True, 90, "Proof_of_English_Proficiency", ["IELTS Result", "TOEFL Score Report", "PTE Academic", "IELTS TRF"]),
+    ("PASSPORT_PHOTOGRAPH", "Passport Photograph", "IDENTITY", 9, False, None, "Passport_Photograph", ["Biometric Photo", "Passport Photo"]),
+    ("SPONSORSHIP_LETTER", "Sponsorship Letter", "FINANCIAL", 10, False, None, "Sponsorship_Letter", ["Financial Sponsor Letter", "Affidavit of Support"]),
+    ("MEDICAL_CERTIFICATE", "Medical / TB Certificate", "HEALTH", 11, True, 90, "Medical_Certificate", ["TB Test Certificate", "IOM TB Clearance"]),
+    ("EMPLOYMENT_LETTER", "Employment Verification Letter", "EMPLOYMENT", 12, False, None, "Employment_Letter", ["Employer Letter", "Work Reference Letter"]),
+    ("POLICE_CLEARANCE", "Police Clearance Certificate", "BACKGROUND", 13, True, 90, "Police_Clearance", ["Criminal Record Check", "Character Certificate"]),
+    ("TRAVEL_ITINERARY", "Travel Itinerary", "TRAVEL", 14, False, None, "Travel_Itinerary", ["Flight Reservation", "Flight Booking"]),
+    ("HOTEL_BOOKING", "Accommodation / Hotel Booking", "TRAVEL", 15, False, None, "Hotel_Booking", ["Hotel Reservation", "Tenancy Agreement"]),
+    ("ADDITIONAL_DOCUMENT", "Additional Supporting Document", "GENERAL", 90, False, None, "Additional_Document", ["Supplementary Document"]),
+    ("UNKNOWN", "Unclassified / Unknown Document", "GENERAL", 99, False, None, "Unknown_Document", []),
+]
+
+
+def seed_initial_data(db: Session) -> None:
+    """Populate initial RBAC roles, staff accounts, reference data, and requirement checklists."""
+    # 1. Permissions & Roles
+    perm_map: dict[str, Permission] = {}
+    for code, module, desc in DEFAULT_PERMISSIONS:
+        perm = db.scalar(select(Permission).where(Permission.code == code))
+        if not perm:
+            perm = Permission(code=code, module=module, description=desc)
+            db.add(perm)
+            db.flush()
+        perm_map[code] = perm
+
+    role_map: dict[str, Role] = {}
+    for role_code, (display_name, desc, perm_codes) in ROLE_DEFINITIONS.items():
+        role = db.scalar(select(Role).where(Role.name == role_code))
+        if not role:
+            role = Role(
+                name=role_code,
+                display_name=display_name,
+                description=desc,
+                is_system=True,
+                permissions=[perm_map[c] for c in perm_codes if c in perm_map],
+            )
+            db.add(role)
+            db.flush()
+        role_map[role_code] = role
+
+    # 2. Default Staff Users (for enterprise onboarding & automated verification)
+    default_users = [
+        ("superadmin@leaders.edu", "LeadersAdmin!2026", "Adaeze", "Okafor", "SUPER_ADMIN"),
+        ("admin@leaders.edu", "LeadersAdmin!2026", "Chinedu", "Balogun", "ADMIN"),
+        ("officer@leaders.edu", "LeadersOfficer!2026", "Tunde", "Adeyemi", "OFFICER"),
+        ("viewer@leaders.edu", "LeadersViewer!2026", "Grace", "Mensah", "VIEWER"),
+    ]
+    for email, pw, fname, lname, role_name in default_users:
+        existing = db.scalar(select(User).where(User.email == email))
+        if not existing:
+            db.add(
+                User(
+                    email=email,
+                    hashed_password=hash_password(pw),
+                    first_name=fname,
+                    last_name=lname,
+                    role_id=role_map[role_name].id,
+                    is_active=True,
+                )
+            )
+    db.flush()
+
+    # 3. Destinations
+    dest_map: dict[str, Destination] = {}
+    for name, code, region in DEFAULT_DESTINATIONS:
+        dest = db.scalar(select(Destination).where(Destination.code == code))
+        if not dest:
+            dest = Destination(name=name, code=code, region=region, is_active=True)
+            db.add(dest)
+            db.flush()
+        dest_map[code] = dest
+
+    # 4. Travel Purposes
+    purpose_map: dict[str, TravelPurpose] = {}
+    for name, code, desc in DEFAULT_PURPOSES:
+        purpose = db.scalar(select(TravelPurpose).where(TravelPurpose.code == code))
+        if not purpose:
+            purpose = TravelPurpose(name=name, code=code, description=desc, is_active=True)
+            db.add(purpose)
+            db.flush()
+        purpose_map[code] = purpose
+
+    # 5. Application Categories
+    categories_seed = [
+        ("Student Visa", "STUDENT_VISA", "GB", "STUDY", "Tier 4 / Student Route Academic Visa Package"),
+        ("Postgraduate Study Visa", "POSTGRAD_STUDY_VISA", None, "STUDY", "Postgraduate university study application"),
+        ("Study Permit", "STUDY_PERMIT", "CA", "STUDY", "Canadian Study Permit document package"),
+        ("Standard Visitor Visa", "STANDARD_VISITOR", None, "TOURISM", "Short-stay tourist visitor application"),
+        ("Business Visitor Visa", "BUSINESS_VISITOR", None, "BUSINESS", "Business conference & corporate visit"),
+        ("Skilled Worker Visa", "SKILLED_WORKER", None, "WORK", "Sponsored skilled employment visa"),
+        ("Family Visit Visa", "FAMILY_VISIT_VISA", None, "FAMILY_VISIT", "Family visit & dependent travel"),
+    ]
+    cat_map: dict[str, ApplicationCategory] = {}
+    for name, code, dest_code, purp_code, desc in categories_seed:
+        cat = db.scalar(select(ApplicationCategory).where(ApplicationCategory.code == code))
+        if not cat:
+            cat = ApplicationCategory(
+                name=name,
+                code=code,
+                destination_id=dest_map[dest_code].id if dest_code else None,
+                purpose_id=purpose_map[purp_code].id if purp_code else None,
+                description=desc,
+                is_archived=False,
+            )
+            db.add(cat)
+            db.flush()
+        cat_map[code] = cat
+
+    # 6. Document Types & Aliases
+    doc_type_map: dict[str, DocumentType] = {}
+    for code, name, cat_name, order, has_exp, min_val, prefix, aliases in DEFAULT_DOCUMENT_TYPES:
+        dt = db.scalar(select(DocumentType).where(DocumentType.code == code))
+        if not dt:
+            dt = DocumentType(
+                code=code,
+                name=name,
+                category=cat_name,
+                default_order=order,
+                has_expiry=has_exp,
+                min_validity_days=min_val,
+                naming_prefix=prefix,
+                description=f"Canonical document type for {name}",
+                is_active=True,
+            )
+            db.add(dt)
+            db.flush()
+            for alias_name in aliases:
+                db.add(DocumentAlias(document_type_id=dt.id, alias_name=alias_name, is_active=True))
+        doc_type_map[code] = dt
+    db.flush()
+
+    # 7. Configurable Requirement Sets (Sample checklists - clearly illustrative administrative configurations)
+    super_admin = db.scalar(select(User).where(User.email == "superadmin@leaders.edu"))
+
+    # 7a. United Kingdom + Study + Student Visa (illustrative checklist from specification)
+    uk_study_set = db.scalar(
+        select(RequirementSet).where(
+            RequirementSet.destination_id == dest_map["GB"].id,
+            RequirementSet.purpose_id == purpose_map["STUDY"].id,
+            RequirementSet.category_id == cat_map["STUDENT_VISA"].id,
+        )
+    )
+    if not uk_study_set:
+        uk_study_set = RequirementSet(
+            name="United Kingdom - Study (Student Visa)",
+            destination_id=dest_map["GB"].id,
+            purpose_id=purpose_map["STUDY"].id,
+            category_id=cat_map["STUDENT_VISA"].id,
+            applicant_type="STANDARD",
+            naming_convention="{document_order}_{document_type}.{extension}",
+            folder_template="LEADERS_EDU_TOUR_DOCUMENTS/{DESTINATION}/{PURPOSE}/{APPLICANT_NAME}_{APPLICATION_REFERENCE}",
+            is_active=True,
+        )
+        db.add(uk_study_set)
+        db.flush()
+
+        v1 = RequirementVersion(
+            requirement_set_id=uk_study_set.id,
+            version_number=1,
+            effective_from=datetime.now(timezone.utc),
+            change_notes="Initial configurable checklist for UK Student Visa administrative processing.",
+            created_by_id=super_admin.id if super_admin else None,
+        )
+        db.add(v1)
+        db.flush()
+        uk_study_set.active_version_id = v1.id
+
+        uk_items = [
+            ("INTERNATIONAL_PASSPORT", "REQUIRED", 1, None, None, 180, "Bio-data page must be clear and valid for at least 6 months."),
+            ("ADMISSION_LETTER", "REQUIRED", 2, None, None, None, "Official unconditional offer or CAS confirmation from UK institution."),
+            ("ACADEMIC_TRANSCRIPT", "REQUIRED", 3, None, None, None, "Complete academic transcripts with institutional stamp/signature."),
+            ("ACADEMIC_CERTIFICATES", "REQUIRED", 4, None, None, None, "Degree or secondary graduation certificate."),
+            ("BANK_STATEMENT", "REQUIRED", 5, None, None, 28, "Recent bank statement showing maintenance funds."),
+            ("BIRTH_CERTIFICATE", "REQUIRED", 6, None, None, None, "Official birth registration certificate."),
+            ("STATEMENT_OF_PURPOSE", "REQUIRED", 7, None, None, None, "Personal statement explaining course choice and career objectives."),
+            ("ENGLISH_PROFICIENCY", "REQUIRED", 8, None, None, None, "IELTS, TOEFL, PTE, or institutional English waiver."),
+            ("PASSPORT_PHOTOGRAPH", "REQUIRED", 9, None, None, None, "Recent colour biometric passport photograph."),
+            (
+                "SPONSORSHIP_LETTER",
+                "CONDITIONAL",
+                10,
+                {"field": "is_sponsored", "op": "==", "value": True},
+                "Required if tuition or living expenses are funded by a parent or third-party sponsor.",
+                None,
+                "Include sponsor's signed commitment letter alongside financial evidence.",
+            ),
+            ("MEDICAL_CERTIFICATE", "OPTIONAL", 11, None, None, 180, "TB clearance certificate where applicable to country of residence."),
+        ]
+        for code, level, order, cond_expr, cond_exp, min_val, instr in uk_items:
+            db.add(
+                DocumentRequirement(
+                    requirement_version_id=v1.id,
+                    document_type_id=doc_type_map[code].id,
+                    requirement_level=level,
+                    display_order=order,
+                    condition_expression=cond_expr,
+                    condition_explanation=cond_exp,
+                    alternative_doc_type_ids=[],
+                    allow_multiple_versions=True,
+                    min_validity_days=min_val,
+                    custom_instructions=instr,
+                )
+            )
+
+    # 7b. Canada + Study + Study Permit
+    ca_study_set = db.scalar(
+        select(RequirementSet).where(
+            RequirementSet.destination_id == dest_map["CA"].id,
+            RequirementSet.purpose_id == purpose_map["STUDY"].id,
+            RequirementSet.category_id == cat_map["STUDY_PERMIT"].id,
+        )
+    )
+    if not ca_study_set:
+        ca_study_set = RequirementSet(
+            name="Canada - Study (Study Permit)",
+            destination_id=dest_map["CA"].id,
+            purpose_id=purpose_map["STUDY"].id,
+            category_id=cat_map["STUDY_PERMIT"].id,
+            applicant_type="STANDARD",
+            naming_convention="{document_order}_{document_type}.{extension}",
+            folder_template="LEADERS_EDU_TOUR_DOCUMENTS/{DESTINATION}/{PURPOSE}/{APPLICANT_NAME}_{APPLICATION_REFERENCE}",
+            is_active=True,
+        )
+        db.add(ca_study_set)
+        db.flush()
+        v1 = RequirementVersion(
+            requirement_set_id=ca_study_set.id,
+            version_number=1,
+            change_notes="Initial configurable checklist for Canada Study Permit.",
+            created_by_id=super_admin.id if super_admin else None,
+        )
+        db.add(v1)
+        db.flush()
+        ca_study_set.active_version_id = v1.id
+        for idx, (code, level) in enumerate(
+            [
+                ("INTERNATIONAL_PASSPORT", "REQUIRED"),
+                ("ADMISSION_LETTER", "REQUIRED"),
+                ("ACADEMIC_TRANSCRIPT", "REQUIRED"),
+                ("BANK_STATEMENT", "REQUIRED"),
+                ("STATEMENT_OF_PURPOSE", "REQUIRED"),
+                ("ENGLISH_PROFICIENCY", "REQUIRED"),
+                ("POLICE_CLEARANCE", "OPTIONAL"),
+            ],
+            start=1,
+        ):
+            db.add(
+                DocumentRequirement(
+                    requirement_version_id=v1.id,
+                    document_type_id=doc_type_map[code].id,
+                    requirement_level=level,
+                    display_order=idx,
+                    allow_multiple_versions=True,
+                )
+            )
+
+    # 7c. UK Tourism Standard Visitor
+    uk_tour_set = db.scalar(
+        select(RequirementSet).where(
+            RequirementSet.destination_id == dest_map["GB"].id,
+            RequirementSet.purpose_id == purpose_map["TOURISM"].id,
+            RequirementSet.category_id == cat_map["STANDARD_VISITOR"].id,
+        )
+    )
+    if not uk_tour_set:
+        uk_tour_set = RequirementSet(
+            name="United Kingdom - Tourism (Standard Visitor)",
+            destination_id=dest_map["GB"].id,
+            purpose_id=purpose_map["TOURISM"].id,
+            category_id=cat_map["STANDARD_VISITOR"].id,
+            applicant_type="STANDARD",
+            naming_convention="{document_order}_{document_type}.{extension}",
+            folder_template="LEADERS_EDU_TOUR_DOCUMENTS/{DESTINATION}/{PURPOSE}/{APPLICANT_NAME}_{APPLICATION_REFERENCE}",
+            is_active=True,
+        )
+        db.add(uk_tour_set)
+        db.flush()
+        v1 = RequirementVersion(
+            requirement_set_id=uk_tour_set.id,
+            version_number=1,
+            change_notes="Initial configurable checklist for UK Standard Visitor.",
+            created_by_id=super_admin.id if super_admin else None,
+        )
+        db.add(v1)
+        db.flush()
+        uk_tour_set.active_version_id = v1.id
+        for idx, (code, level) in enumerate(
+            [
+                ("INTERNATIONAL_PASSPORT", "REQUIRED"),
+                ("BANK_STATEMENT", "REQUIRED"),
+                ("EMPLOYMENT_LETTER", "REQUIRED"),
+                ("TRAVEL_ITINERARY", "REQUIRED"),
+                ("HOTEL_BOOKING", "REQUIRED"),
+            ],
+            start=1,
+        ):
+            db.add(
+                DocumentRequirement(
+                    requirement_version_id=v1.id,
+                    document_type_id=doc_type_map[code].id,
+                    requirement_level=level,
+                    display_order=idx,
+                    allow_multiple_versions=True,
+                )
+            )
+
+    # 8. Default System Settings
+    default_settings = [
+        ("ai.provider", {"provider": "LOCAL_DETERMINISTIC", "allow_external_ai": False, "redact_pii": True}, "AI", "Active AI document classification provider and external privacy guard"),
+        ("ocr.provider", {"provider": "TESSERACT"}, "OCR", "Active OCR engine for scanned PDFs and images"),
+        ("naming.default_convention", {"template": "{document_order}_{document_type}.{extension}", "alternative": "{applicant_name}_{document_type}_{date}.{extension}"}, "NAMING", "Default automatic filename generation convention"),
+        ("storage.folder_template", {"template": "LEADERS_EDU_TOUR_DOCUMENTS/{DESTINATION}/{PURPOSE}/{APPLICANT_NAME}_{APPLICATION_REFERENCE}"}, "STORAGE", "Default organized applicant folder hierarchy"),
+        ("security.upload_limits", {"max_file_mb": 25, "max_batch_files": 50, "retention_days": 365}, "SECURITY", "Upload limits and NDPA/GDPR data retention policy"),
+    ]
+    for key, val, cat, desc in default_settings:
+        if not db.scalar(select(SystemSetting).where(SystemSetting.key == key)):
+            db.add(SystemSetting(key=key, value_json=val, category=cat, description=desc))
+
+    db.commit()

@@ -1,0 +1,49 @@
+services:
+  - type: web
+    name: ldi-api
+    runtime: docker
+    dockerfilePath: ./infrastructure/docker/Dockerfile.api
+    dockerContext: .
+    plan: free
+    region: frankfurt
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: SIGNED_URL_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: CELERY_ALWAYS_EAGER
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: STORAGE_BACKEND
+        value: r2
+      - key: S3_REGION
+        value: auto
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_BUCKET_NAME
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_USE_SSL
+        value: "true"
+      - key: OCR_PROVIDER
+        value: TESSERACT
+      - key: AI_PROVIDER
+        value: LOCAL_DETERMINISTIC
+      - key: ALLOW_EXTERNAL_AI
+        value: "false"
+      - key: GEMINI_API_KEY
+        sync: false
