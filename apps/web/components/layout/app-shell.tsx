@@ -143,6 +143,10 @@ export function AppShell({
               <LogOut className="h-4 w-4" />
             </button>
           </div>
+          <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center justify-between text-[10px] text-slate-400">
+            <span>AI Platform</span>
+            <span className="font-semibold tracking-wider text-emerald-300">CHIDI AI</span>
+          </div>
         </div>
       </aside>
 
@@ -167,9 +171,21 @@ export function AppShell({
           </div>
         </header>
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] w-full mx-auto">
+        <main className="flex-1 p-4 sm:p-6 lg:px-8 lg:py-8 max-w-[1440px] w-full mx-auto">
           {children}
         </main>
+
+        <footer className="border-t border-slate-200 bg-white px-4 sm:px-6 lg:px-8 py-3">
+          <div className="max-w-[1440px] w-full mx-auto flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+            <span>Leaders Document Intelligence · Leaders Edu Tour Ltd</span>
+            <span className="inline-flex items-center gap-1.5">
+              <span>Built by</span>
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-navy text-emerald-300 font-semibold tracking-wider text-[11px]">
+                CHIDI AI
+              </span>
+            </span>
+          </div>
+        </footer>
       </div>
     </div>
   );

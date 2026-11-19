@@ -40,4 +40,8 @@ pnpm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# Generated manual upload test bundle
+sample_unnamed_canada_files/
+sample_unnamed_canada_bundle.zip
 .neon

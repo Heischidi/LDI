@@ -56,7 +56,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4 gap-4">
       <div className="w-full max-w-4xl grid md:grid-cols-5 bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
         {/* Brand Panel */}
         <div className="md:col-span-2 bg-navy text-white p-8 flex flex-col justify-between">
@@ -85,7 +85,8 @@ export default function LoginPage() {
               <span>Private encrypted document vault &amp; RBAC</span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Internal administrative tool — Leaders Edu Tour Ltd. NDPA &amp; GDPR aligned.
+              Internal administrative tool — Leaders Edu Tour Ltd. NDPA &amp; GDPR aligned. · Powered by{" "}
+              <span className="font-semibold text-emerald-300">CHIDI AI</span>
             </p>
           </div>
         </div>
@@ -222,6 +223,12 @@ export default function LoginPage() {
             </form>
           )}
         </div>
+      </div>
+      <div className="flex items-center justify-center gap-2 text-xs text-slate-500">
+        <span>Built by</span>
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-navy text-emerald-300 font-semibold tracking-wider text-[11px]">
+          CHIDI AI
+        </span>
       </div>
     </div>
   );

@@ -105,20 +105,42 @@ DEFAULT_PURPOSES = [
 
 DEFAULT_DOCUMENT_TYPES = [
     ("INTERNATIONAL_PASSPORT", "International Passport", "IDENTITY", 1, True, 180, "International_Passport", ["Travel Passport", "Passport Bio Page", "Passport Data Page", "Nigerian Passport"]),
-    ("ADMISSION_LETTER", "Admission Letter", "ACADEMIC", 2, False, None, "Admission_Letter", ["Offer Letter", "CAS Letter", "Unconditional Offer", "University Admission Letter"]),
-    ("ACADEMIC_TRANSCRIPT", "Academic Transcript", "ACADEMIC", 3, False, None, "Academic_Transcript", ["Student Transcript", "Official Transcript", "Transcript of Records"]),
-    ("ACADEMIC_CERTIFICATES", "Academic Certificates", "ACADEMIC", 4, False, None, "Academic_Certificates", ["Degree Certificate", "WAEC Certificate", "Diploma Certificate", "Graduation Certificate"]),
-    ("BANK_STATEMENT", "Bank Statement", "FINANCIAL", 5, True, 28, "Bank_Statement", ["Statement of Account", "Account Statement", "Financial Statement"]),
+    ("ADMISSION_LETTER", "Letter of Acceptance (LOA) / Admission Letter", "ACADEMIC", 2, False, None, "Admission_Letter", ["Offer Letter", "CAS Letter", "Unconditional Offer", "University Admission Letter", "Letter of Acceptance", "LOA", "DLI Acceptance Letter"]),
+    ("ACADEMIC_TRANSCRIPT", "Academic / Degree Transcript", "ACADEMIC", 3, False, None, "Academic_Transcript", ["Student Transcript", "Official Transcript", "Transcript of Records", "Degree Transcript"]),
+    ("ACADEMIC_CERTIFICATES", "Academic / Degree Certificates", "ACADEMIC", 4, False, None, "Academic_Certificates", ["Degree Certificate", "Diploma Certificate", "Graduation Certificate", "BSc Certificate"]),
+    ("BANK_STATEMENT", "Bank Statement (+ Certificate)", "FINANCIAL", 5, True, 28, "Bank_Statement", ["Statement of Account", "Account Statement", "Financial Statement", "Six Months Personal Bank Statement", "Bank Reference Certificate"]),
     ("BIRTH_CERTIFICATE", "Birth Certificate", "IDENTITY", 6, False, None, "Birth_Certificate", ["Certificate of Birth", "NPC Birth Certificate"]),
-    ("STATEMENT_OF_PURPOSE", "Statement of Purpose", "SUPPORTING", 7, False, None, "Statement_of_Purpose", ["Personal Statement", "Motivation Letter", "SOP"]),
+    ("STATEMENT_OF_PURPOSE", "Statement of Purpose (SOP)", "SUPPORTING", 7, False, None, "Statement_of_Purpose", ["Personal Statement", "Motivation Letter", "SOP"]),
     ("ENGLISH_PROFICIENCY", "Proof of English Proficiency", "ACADEMIC", 8, True, 90, "Proof_of_English_Proficiency", ["IELTS Result", "TOEFL Score Report", "PTE Academic", "IELTS TRF"]),
-    ("PASSPORT_PHOTOGRAPH", "Passport Photograph", "IDENTITY", 9, False, None, "Passport_Photograph", ["Biometric Photo", "Passport Photo"]),
+    ("PASSPORT_PHOTOGRAPH", "Passport Photograph (White Background)", "IDENTITY", 9, False, None, "Passport_Photograph", ["Biometric Photo", "Passport Photo"]),
     ("SPONSORSHIP_LETTER", "Sponsorship Letter", "FINANCIAL", 10, False, None, "Sponsorship_Letter", ["Financial Sponsor Letter", "Affidavit of Support"]),
     ("MEDICAL_CERTIFICATE", "Medical / TB Certificate", "HEALTH", 11, True, 90, "Medical_Certificate", ["TB Test Certificate", "IOM TB Clearance"]),
     ("EMPLOYMENT_LETTER", "Employment Verification Letter", "EMPLOYMENT", 12, False, None, "Employment_Letter", ["Employer Letter", "Work Reference Letter"]),
     ("POLICE_CLEARANCE", "Police Clearance Certificate", "BACKGROUND", 13, True, 90, "Police_Clearance", ["Criminal Record Check", "Character Certificate"]),
     ("TRAVEL_ITINERARY", "Travel Itinerary", "TRAVEL", 14, False, None, "Travel_Itinerary", ["Flight Reservation", "Flight Booking"]),
     ("HOTEL_BOOKING", "Accommodation / Hotel Booking", "TRAVEL", 15, False, None, "Hotel_Booking", ["Hotel Reservation", "Tenancy Agreement"]),
+    ("CURRICULUM_VITAE", "Curriculum Vitae (CV)", "ACADEMIC", 16, False, None, "Curriculum_Vitae", ["CV", "Resume", "Academic CV"]),
+    ("WAEC_NECO_CERTIFICATE", "WAEC / NECO Certificate", "ACADEMIC", 17, False, None, "WAEC_NECO_Certificate", ["WAEC Certificate", "NECO Certificate", "SSCE Certificate", "WASSCE Certificate"]),
+    ("WAEC_NECO_SCRATCH_CARD", "WAEC / NECO Scratch Card", "ACADEMIC", 18, False, None, "WAEC_NECO_Scratch_Card", ["WAEC Scratch Card", "NECO Scratch Card", "Result Checker PIN"]),
+    ("ACADEMIC_REFERENCE_LETTER", "Academic Reference Letter", "ACADEMIC", 19, False, None, "Academic_Reference_Letter", ["Reference Letter", "Academic Recommendation Letter"]),
+    ("NIN_SLIP", "NIN Slip", "IDENTITY", 20, False, None, "NIN_Slip", ["National Identification Number Slip", "NIMC Slip"]),
+    ("TRAINING_CERTIFICATES", "Training and Professional Certificates", "ACADEMIC", 21, False, None, "Training_Professional_Certificates", ["Professional Certificate", "Training Certificate"]),
+    ("PARENTS_CONSENT_LETTER", "Parents' Consent Letter", "SUPPORTING", 22, False, None, "Parents_Consent_Letter", ["Parental Consent Letter", "Parent Consent"]),
+    ("PROMOTION_LETTER", "Promotion Letter(s)", "EMPLOYMENT", 23, False, None, "Promotion_Letter", ["Letter of Promotion"]),
+    ("EMPLOYER_INTRODUCTION_LETTER", "Letter of Introduction from Employer", "EMPLOYMENT", 24, False, None, "Employer_Introduction_Letter", ["Employer Introduction Letter"]),
+    ("STUDY_LEAVE_LETTER", "Study Leave / Letter of Exemption to Study", "EMPLOYMENT", 25, False, None, "Study_Leave_Letter", ["Study Leave Approval", "Letter of Exemption to Study"]),
+    ("WORK_ID_CARD", "Work ID Card", "EMPLOYMENT", 26, False, None, "Work_ID_Card", ["Staff ID Card", "Employee ID Card"]),
+    ("PAYSLIPS", "Six (6) Months' Payslips", "EMPLOYMENT", 27, False, None, "Six_Months_Payslips", ["Salary Payslips", "Monthly Payslips"]),
+    ("BUSINESS_REGISTRATION", "Business Registration Documents", "FINANCIAL", 28, False, None, "Business_Registration_Documents", ["CAC Certificate", "Certificate of Incorporation", "Business Name Registration"]),
+    ("BUSINESS_BANK_STATEMENT", "Business Bank Statement", "FINANCIAL", 29, True, 28, "Business_Bank_Statement", ["Corporate Bank Statement", "Company Bank Statement"]),
+    ("TAX_CLEARANCE_CERTIFICATE", "Tax Clearance Certificate", "FINANCIAL", 30, True, 90, "Tax_Clearance_Certificate", ["FIRS Tax Clearance", "TCC"]),
+    ("LAND_DOCUMENTS", "Land Documents", "ASSETS", 31, False, None, "Land_Documents", ["Land Purchase Agreement", "Land Allocation"]),
+    ("CERTIFICATE_OF_OCCUPANCY", "Certificate of Occupancy (C of O)", "ASSETS", 32, False, None, "Certificate_of_Occupancy", ["C of O", "Statutory Right of Occupancy"]),
+    ("SURVEY_PLAN", "Survey Plan", "ASSETS", 33, False, None, "Survey_Plan", ["Registered Survey Plan"]),
+    ("DEED_OF_ASSIGNMENT", "Deed of Assignment", "ASSETS", 34, False, None, "Deed_of_Assignment", ["Deed of Conveyance"]),
+    ("PROPERTY_VALUATION_REPORT", "Property Valuation Report", "ASSETS", 35, False, None, "Property_Valuation_Report", ["Estate Valuation Report"]),
+    ("OTHER_ASSET_DOCUMENTS", "Other Investment or Asset Documents", "ASSETS", 36, False, None, "Other_Asset_Documents", ["Investment Certificate", "Share Certificate"]),
+    ("NOTARY_FEE_RECEIPT", "Lawyer's Notary Fee Receipt (₦100,000)", "FEES", 37, False, None, "Lawyers_Notary_Fee_Receipt", ["Notary Fee Receipt", "Lawyer Notary Fee"]),
     ("ADDITIONAL_DOCUMENT", "Additional Supporting Document", "GENERAL", 90, False, None, "Additional_Document", ["Supplementary Document"]),
     ("UNKNOWN", "Unclassified / Unknown Document", "GENERAL", 99, False, None, "Unknown_Document", []),
 ]
@@ -237,8 +259,24 @@ def seed_initial_data(db: Session) -> None:
             )
             db.add(dt)
             db.flush()
-            for alias_name in aliases:
+        else:
+            dt.name = name
+            dt.category = cat_name
+            dt.default_order = order
+            dt.has_expiry = has_exp
+            dt.min_validity_days = min_val
+            dt.naming_prefix = prefix
+
+        existing_aliases = {
+            a.alias_name
+            for a in db.scalars(
+                select(DocumentAlias).where(DocumentAlias.document_type_id == dt.id)
+            ).all()
+        }
+        for alias_name in aliases:
+            if alias_name not in existing_aliases:
                 db.add(DocumentAlias(document_type_id=dt.id, alias_name=alias_name, is_active=True))
+                existing_aliases.add(alias_name)
         doc_type_map[code] = dt
     db.flush()
 
@@ -315,7 +353,7 @@ def seed_initial_data(db: Session) -> None:
                 )
             )
 
-    # 7b. Canada + Study + Study Permit
+    # 7b. Canada + Study + Study Permit (Full Sections A-E Checklist)
     ca_study_set = db.scalar(
         select(RequirementSet).where(
             RequirementSet.destination_id == dest_map["CA"].id,
@@ -325,7 +363,7 @@ def seed_initial_data(db: Session) -> None:
     )
     if not ca_study_set:
         ca_study_set = RequirementSet(
-            name="Canada - Study (Study Permit)",
+            name="Canada Study Visa – Document Checklist",
             destination_id=dest_map["CA"].id,
             purpose_id=purpose_map["STUDY"].id,
             category_id=cat_map["STUDY_PERMIT"].id,
@@ -336,34 +374,96 @@ def seed_initial_data(db: Session) -> None:
         )
         db.add(ca_study_set)
         db.flush()
-        v1 = RequirementVersion(
+
+    existing_ca_versions = db.scalars(
+        select(RequirementVersion)
+        .where(RequirementVersion.requirement_set_id == ca_study_set.id)
+        .order_by(RequirementVersion.version_number.desc())
+    ).all()
+    active_ca_ver = next(
+        (v for v in existing_ca_versions if v.id == ca_study_set.active_version_id),
+        existing_ca_versions[0] if existing_ca_versions else None,
+    )
+    existing_ca_item_count = (
+        len(
+            db.scalars(
+                select(DocumentRequirement).where(
+                    DocumentRequirement.requirement_version_id == active_ca_ver.id
+                )
+            ).all()
+        )
+        if active_ca_ver
+        else 0
+    )
+
+    if existing_ca_item_count < 30:
+        next_ver_num = (existing_ca_versions[0].version_number + 1) if existing_ca_versions else 1
+        ca_study_set.name = "Canada Study Visa – Document Checklist"
+        ca_ver = RequirementVersion(
             requirement_set_id=ca_study_set.id,
-            version_number=1,
-            change_notes="Initial configurable checklist for Canada Study Permit.",
+            version_number=next_ver_num,
+            effective_from=datetime.now(timezone.utc),
+            change_notes="Full Canada Study Visa – Document Checklist (Sections A–E: Personal, Employment, Financial, Assets, and Fees).",
             created_by_id=super_admin.id if super_admin else None,
         )
-        db.add(v1)
+        db.add(ca_ver)
         db.flush()
-        ca_study_set.active_version_id = v1.id
-        for idx, (code, level) in enumerate(
-            [
-                ("INTERNATIONAL_PASSPORT", "REQUIRED"),
-                ("ADMISSION_LETTER", "REQUIRED"),
-                ("ACADEMIC_TRANSCRIPT", "REQUIRED"),
-                ("BANK_STATEMENT", "REQUIRED"),
-                ("STATEMENT_OF_PURPOSE", "REQUIRED"),
-                ("ENGLISH_PROFICIENCY", "REQUIRED"),
-                ("POLICE_CLEARANCE", "OPTIONAL"),
-            ],
-            start=1,
-        ):
+        ca_study_set.active_version_id = ca_ver.id
+
+        ca_study_items = [
+            # Section A: Student's Personal Documents
+            ("INTERNATIONAL_PASSPORT", "REQUIRED", 1, None, None, 180, "[Section A · Personal] Valid international passport bio-data page."),
+            ("ADMISSION_LETTER", "REQUIRED", 2, None, None, None, "[Section A · Personal] Official Letter of Acceptance (LOA) from Designated Learning Institution."),
+            ("BIRTH_CERTIFICATE", "REQUIRED", 3, None, None, None, "[Section A · Personal] Official Birth Certificate / NPC Certificate of Birth."),
+            ("CURRICULUM_VITAE", "REQUIRED", 4, None, None, None, "[Section A · Personal] Up-to-date Curriculum Vitae (CV)."),
+            ("ACADEMIC_CERTIFICATES", "REQUIRED", 5, None, None, None, "[Section A · Personal] University/College Degree Certificate or Statement of Result."),
+            ("ACADEMIC_TRANSCRIPT", "REQUIRED", 6, None, None, None, "[Section A · Personal] Official Degree Academic Transcript."),
+            ("WAEC_NECO_CERTIFICATE", "REQUIRED", 7, None, None, None, "[Section A · Personal] WAEC / NECO Senior Secondary School Certificate."),
+            ("WAEC_NECO_SCRATCH_CARD", "REQUIRED", 8, None, None, None, "[Section A · Personal] WAEC / NECO Scratch Card / Result Checker PIN."),
+            ("ACADEMIC_REFERENCE_LETTER", "REQUIRED", 9, None, None, None, "[Section A · Personal] Signed Academic Reference Letter from lecturer/institution."),
+            ("PASSPORT_PHOTOGRAPH", "REQUIRED", 10, None, None, None, "[Section A · Personal] Recent Passport Photograph on a clean white background."),
+            ("NIN_SLIP", "REQUIRED", 11, None, None, None, "[Section A · Personal] National Identification Number (NIN) Slip."),
+            ("POLICE_CLEARANCE", "REQUIRED", 12, None, None, 90, "[Section A · Personal] Valid Police Clearance / Character Certificate."),
+            ("TRAINING_CERTIFICATES", "OPTIONAL", 13, None, None, None, "[Section A · Personal] Training and Professional Certificates (where applicable)."),
+            ("STATEMENT_OF_PURPOSE", "REQUIRED", 14, None, None, None, "[Section A · Personal] Statement of Purpose (SOP) — to be written/reviewed by Leaders Edu Tour Ltd."),
+            ("PARENTS_CONSENT_LETTER", "CONDITIONAL", 15, {"field": "requires_parent_consent", "op": "==", "value": True}, "Required where applicant is a minor or supported by parental consent.", None, "[Section A · Personal] Signed Parents' Consent Letter (where applicable)."),
+            # Section B: Student's Employment Documents
+            ("EMPLOYMENT_LETTER", "CONDITIONAL", 16, {"field": "is_employed", "op": "==", "value": True}, "Required if applicant is currently or previously employed.", None, "[Section B · Employment] Official Employment Letter stating role and start date."),
+            ("PROMOTION_LETTER", "OPTIONAL", 17, None, None, None, "[Section B · Employment] Promotion Letter(s) (where applicable)."),
+            ("EMPLOYER_INTRODUCTION_LETTER", "CONDITIONAL", 18, {"field": "is_employed", "op": "==", "value": True}, "Required when employed to confirm official status with employer.", None, "[Section B · Employment] Letter of Introduction from Employer."),
+            ("STUDY_LEAVE_LETTER", "CONDITIONAL", 19, {"field": "is_employed", "op": "==", "value": True}, "Required if taking study leave or exemption from employment/NYSC.", None, "[Section B · Employment] Study Leave / Letter of Exemption to Study (where applicable)."),
+            ("WORK_ID_CARD", "CONDITIONAL", 20, {"field": "is_employed", "op": "==", "value": True}, "Required for currently employed applicants.", None, "[Section B · Employment] Valid Staff / Work ID Card."),
+            ("PAYSLIPS", "CONDITIONAL", 21, {"field": "is_employed", "op": "==", "value": True}, "Required for salaried/employed applicants.", None, "[Section B · Employment] Six (6) Months' Payslips."),
+            # Section C: Financial Documents (Sponsor and Yours)
+            ("BANK_STATEMENT", "REQUIRED", 22, None, None, 28, "[Section C · Financial] Six (6) Months' Personal Bank Statement + Reference Certificate."),
+            ("SPONSORSHIP_LETTER", "CONDITIONAL", 23, {"field": "is_sponsored", "op": "==", "value": True}, "Required if tuition or living expenses are funded by a sponsor.", None, "[Section C · Financial] Sponsor Commitment Letter / Affidavit of Support & sponsor bank statement."),
+            ("BUSINESS_REGISTRATION", "CONDITIONAL", 24, {"field": "is_self_employed", "op": "==", "value": True}, "Required if applicant or sponsor is self-employed / business owner.", None, "[Section C · Financial] Business Registration Documents / CAC Certificate (if self-employed)."),
+            ("BUSINESS_BANK_STATEMENT", "CONDITIONAL", 25, {"field": "is_self_employed", "op": "==", "value": True}, "Required if self-employed or funding through a company account.", 28, "[Section C · Financial] Six (6) Months' Business Bank Statement (if applicable)."),
+            ("TAX_CLEARANCE_CERTIFICATE", "CONDITIONAL", 26, {"field": "is_self_employed", "op": "==", "value": True}, "Required where business or personal tax filings apply.", 90, "[Section C · Financial] Tax Clearance Certificate (where applicable)."),
+            # Section D: Asset Documents (where applicable)
+            ("LAND_DOCUMENTS", "OPTIONAL", 27, None, None, None, "[Section D · Assets] Land Documents (where applicable)."),
+            ("CERTIFICATE_OF_OCCUPANCY", "OPTIONAL", 28, None, None, None, "[Section D · Assets] Certificate of Occupancy (C of O) (where applicable)."),
+            ("SURVEY_PLAN", "OPTIONAL", 29, None, None, None, "[Section D · Assets] Registered Survey Plan (where applicable)."),
+            ("DEED_OF_ASSIGNMENT", "OPTIONAL", 30, None, None, None, "[Section D · Assets] Deed of Assignment (where applicable)."),
+            ("PROPERTY_VALUATION_REPORT", "OPTIONAL", 31, None, None, None, "[Section D · Assets] Property Valuation Report (where applicable)."),
+            ("OTHER_ASSET_DOCUMENTS", "OPTIONAL", 32, None, None, None, "[Section D · Assets] Other Investment or Asset Documents (where applicable)."),
+            # Section E: Visa & Professional Fees
+            ("NOTARY_FEE_RECEIPT", "REQUIRED", 33, None, None, None, "[Section E · Visa & Professional Fees] Lawyer's Notary Fee – N100,000 payment confirmation."),
+        ]
+
+        for code, level, order, cond_expr, cond_exp, min_val, instr in ca_study_items:
             db.add(
                 DocumentRequirement(
-                    requirement_version_id=v1.id,
+                    requirement_version_id=ca_ver.id,
                     document_type_id=doc_type_map[code].id,
                     requirement_level=level,
-                    display_order=idx,
+                    display_order=order,
+                    condition_expression=cond_expr,
+                    condition_explanation=cond_exp,
+                    alternative_doc_type_ids=[],
                     allow_multiple_versions=True,
+                    min_validity_days=min_val,
+                    custom_instructions=instr,
                 )
             )
 

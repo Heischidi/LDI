@@ -274,3 +274,89 @@ def test_section_24_definition_of_done_john_doe_15_files(client: TestClient):
     final_app = client.get(f"/api/applicants/{applicant_id}", headers=officer_hdrs).json()
     assert len(final_app["exports"]) == 1
     assert len(final_app["batches"]) == 1
+
+
+def test_canada_study_visa_unnamed_files_organization(client: TestClient):
+    """Verify full 33-item Canada checklist and content-based organization from generic unnamed files."""
+    from pathlib import Path
+    import sys
+
+    root_dir = Path(__file__).resolve().parents[3]
+    sys.path.insert(0, str(root_dir / "infrastructure" / "scripts"))
+    from generate_unnamed_canada_test_bundle import build_unnamed_canada_documents
+
+    officer_hdrs = auth_headers(client, "officer@leaders.edu", "LeadersOfficer!2026")
+    dests = {d["code"]: d for d in client.get("/api/reference/destinations", headers=officer_hdrs).json()}
+    purps = {p["code"]: p for p in client.get("/api/reference/purposes", headers=officer_hdrs).json()}
+    cats = {c["code"]: c for c in client.get("/api/reference/categories", headers=officer_hdrs).json()}
+
+    create_resp = client.post(
+        "/api/applicants",
+        json={
+            "first_name": "Chidi",
+            "last_name": "Nwosu",
+            "email": "chidi.canada@example.com",
+            "phone_number": "+2348099887766",
+            "nationality": "Nigerian",
+            "passport_number": "A77889900",
+            "destination_id": dests["CA"]["id"],
+            "purpose_id": purps["STUDY"]["id"],
+            "category_id": cats["STUDY_PERMIT"]["id"],
+        },
+        headers=officer_hdrs,
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    applicant = create_resp.json()
+    applicant_id = applicant["id"]
+    assert len(applicant["checklist"]) == 33
+
+    unnamed_docs = build_unnamed_canada_documents("Chidi Nwosu")
+    upload_resp = client.post(
+        "/api/documents/upload",
+        data={"applicant_id": applicant_id},
+        files=[("files", (fname, raw, mime)) for fname, raw, mime, _exp in unnamed_docs],
+        headers=officer_hdrs,
+    )
+    assert upload_resp.status_code == 201, upload_resp.text
+    batch_id = upload_resp.json()["batch_id"]
+
+    proc_resp = client.post("/api/processing/batches?sync=true", json={"batch_id": batch_id}, headers=officer_hdrs)
+    assert proc_resp.status_code == 200, proc_resp.text
+
+    batch_status = client.get(f"/api/processing/batches/{batch_id}/status", headers=officer_hdrs).json()
+    docs_by_orig = {d["original_filename"]: d for d in batch_status["documents"]}
+
+    for fname, _raw, _mime, expected_code in unnamed_docs:
+        actual_code = docs_by_orig[fname]["classification"]["predicted_type_code"]
+        assert actual_code == expected_code, f"{fname}: expected {expected_code}, got {actual_code}"
+
+    # Approve all classified documents and export organized folder ZIP
+    for doc_obj in batch_status["documents"]:
+        app_doc_resp = client.post(f"/api/documents/{doc_obj['id']}/approve", headers=officer_hdrs)
+        assert app_doc_resp.status_code == 200, app_doc_resp.text
+
+    export_resp = client.post(f"/api/applicants/{applicant_id}/export", headers=officer_hdrs)
+    assert export_resp.status_code == 200, export_resp.text
+    exp = export_resp.json()
+    folder_root = exp["folder_root"]
+    assert "CANADA/STUDY/CHIDI_NWOSU_" in folder_root
+
+    zip_resp = client.get(exp["download_url"], headers=officer_hdrs)
+    assert zip_resp.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(zip_resp.content)) as zf:
+        root_files = [
+            n[len(folder_root) + 1 :]
+            for n in zf.namelist()
+            if n.startswith(folder_root + "/") and "ORIGINAL_DOCUMENTS/" not in n
+        ]
+        assert "01_International_Passport.pdf" in root_files
+        assert "02_Admission_Letter.pdf" in root_files
+        assert "04_Curriculum_Vitae.pdf" in root_files
+        assert "07_WAEC_NECO_Certificate.pdf" in root_files
+        assert "08_WAEC_NECO_Scratch_Card.pdf" in root_files
+        assert "11_NIN_Slip.pdf" in root_files
+        assert "22_Bank_Statement.pdf" in root_files
+        assert "28_Certificate_of_Occupancy.pdf" in root_files
+        assert "33_Lawyers_Notary_Fee_Receipt.pdf" in root_files
+        assert "PROCESSING_REPORT.pdf" in root_files
+        assert "processing_manifest.json" in root_files

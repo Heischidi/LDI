@@ -196,16 +196,16 @@ class DeterministicContentClassifier(BaseAIClassifier):
         (
             "ADMISSION_LETTER",
             [
-                (r"\b(unconditional offer|conditional offer|letter of admission|offer of admission|confirmation of acceptance for studies|\bcas\b)\b", 0.45),
-                (r"\b(university|college|admissions office|tuition fee|academic program|enrolled)\b", 0.30),
-                (r"\b(pleased to offer|admitted to|start date|course title)\b", 0.28),
+                (r"\b(unconditional offer|conditional offer|letter of admission|letter of acceptance|acceptance letter|dli acceptance|offer of admission|confirmation of acceptance for studies|\bcas\b)\b", 0.48),
+                (r"\b(university|college|admissions office|tuition fee|academic program|enrolled|designated learning institution)\b", 0.30),
+                (r"\b(pleased to offer|admitted to|start date|course title|\bloa\b)\b", 0.28),
             ],
-            "Matched university/college admission offer terminology and enrollment details.",
+            "Matched university/college acceptance (LOA) offer terminology and enrollment details.",
         ),
         (
             "ACADEMIC_TRANSCRIPT",
             [
-                (r"\b(official academic transcript|academic transcript|transcript of records)\b", 0.50),
+                (r"\b(official academic transcript|academic transcript|degree transcript|transcript of records)\b", 0.50),
                 (r"\b(cgpa|gpa|credit hours|grade point|semester|course code)\b", 0.35),
                 (r"\b(registrar|grade|credits earned)\b", 0.25),
             ],
@@ -215,19 +215,99 @@ class DeterministicContentClassifier(BaseAIClassifier):
             "ACADEMIC_CERTIFICATES",
             [
                 (r"\b(degree certificate|bachelor of|master of|hereby certifies|conferred upon)\b", 0.45),
-                (r"\b(diploma|honours|graduation|senate|vice[- ]chancellor|waec|neco)\b", 0.32),
+                (r"\b(diploma|honours|graduation|senate|vice[- ]chancellor)\b", 0.32),
                 (r"\b(certificate of completion|academic qualification)\b", 0.35),
             ],
             "Matched academic degree/diploma conferral and qualification wording.",
         ),
         (
+            "WAEC_NECO_CERTIFICATE",
+            [
+                (r"\b(west african examinations council|national examinations council|waec|neco|wassce|ssce)\b", 0.45),
+                (r"\b(senior school certificate|senior secondary certificate|examination number|subjects?|distinction|credit)\b", 0.35),
+            ],
+            "Matched WAEC/NECO secondary school certificate and examination grading details.",
+        ),
+        (
+            "WAEC_NECO_SCRATCH_CARD",
+            [
+                (r"\b(scratch card|result checker|checker pin|token serial|e-pin)\b", 0.65),
+                (r"\b(serial number|card pin|check results?|waec|neco)\b", 0.35),
+            ],
+            "Matched WAEC/NECO result checker PIN and scratch card serial details.",
+        ),
+        (
+            "CURRICULUM_VITAE",
+            [
+                (r"\b(curriculum vitae|resume|work experience|education background)\b", 0.50),
+                (r"\b(skills|referees|publications|career summary|employment history)\b", 0.35),
+            ],
+            "Matched Curriculum Vitae (CV) education, experience, and skills sections.",
+        ),
+        (
+            "ACADEMIC_REFERENCE_LETTER",
+            [
+                (r"\b(academic reference|recommendation letter|letter of recommendation|academic referee)\b", 0.55),
+                (r"\b(professor|lecturer|head of department|dean|academic performance)\b", 0.35),
+            ],
+            "Matched academic reference / recommendation letter endorsement.",
+        ),
+        (
+            "NIN_SLIP",
+            [
+                (r"\b(national identification number|national identity management commission|nimc|nin slip)\b", 0.55),
+                (r"\b(tracking id|\bnin\b|enrolment|federal republic of nigeria)\b", 0.35),
+            ],
+            "Matched NIMC National Identification Number (NIN) slip indicators.",
+        ),
+        (
+            "TRAINING_CERTIFICATES",
+            [
+                (r"\b(certificate of training|professional certificate|certificate of competence|certificate of achievement|training certificate)\b", 0.55),
+                (r"\b(professional development|certification id|workshop|course completed)\b", 0.35),
+            ],
+            "Matched professional/vocational training certificate wording.",
+        ),
+        (
+            "PARENTS_CONSENT_LETTER",
+            [
+                (r"\b(parent'?s?'? consent|parental consent|letter of consent|consent to study)\b", 0.55),
+                (r"\b(father|mother|legal guardian|my child|my son|my daughter)\b", 0.35),
+            ],
+            "Matched parental/guardian consent declaration.",
+        ),
+        (
             "BANK_STATEMENT",
             [
-                (r"\b(bank statement|statement of account|account summary)\b", 0.45),
+                (r"\b(bank statement|statement of account|account summary|bank reference certificate)\b", 0.45),
                 (r"\b(opening balance|closing balance|available balance|transaction history|credit|debit)\b", 0.35),
                 (r"\b(account number|iban|sort code|swift|currency)\b", 0.28),
             ],
             "Matched banking transaction ledger, balances, and account holder labels.",
+        ),
+        (
+            "BUSINESS_BANK_STATEMENT",
+            [
+                (r"\b(business bank statement|corporate bank statement|company account statement|corporate current account)\b", 0.65),
+                (r"\b(opening balance|closing balance|corporate account|business banking|rc\s*\d+)\b", 0.32),
+            ],
+            "Matched corporate/business bank account transaction summary.",
+        ),
+        (
+            "BUSINESS_REGISTRATION",
+            [
+                (r"\b(corporate affairs commission|certificate of incorporation|cac certificate|business registration|business name registration)\b", 0.55),
+                (r"\b(rc number|bn number|proprietor|directors|registered office|company and allied matters)\b", 0.38),
+            ],
+            "Matched CAC business registration / incorporation details.",
+        ),
+        (
+            "TAX_CLEARANCE_CERTIFICATE",
+            [
+                (r"\b(tax clearance certificate|federal inland revenue service|firs|\btcc\b|internal revenue service)\b", 0.58),
+                (r"\b(tax identification number|\btin\b|assessable income|tax paid)\b", 0.35),
+            ],
+            "Matched tax clearance authority and TIN compliance details.",
         ),
         (
             "BIRTH_CERTIFICATE",
@@ -279,10 +359,106 @@ class DeterministicContentClassifier(BaseAIClassifier):
         (
             "EMPLOYMENT_LETTER",
             [
-                (r"\b(employment verification|letter of employment|to whom it may concern.*employed)\b", 0.45),
+                (r"\b(employment verification|letter of employment|offer of employment|to whom it may concern.*employed)\b", 0.48),
                 (r"\b(job title|annual salary|human resources|date of hire)\b", 0.35),
             ],
             "Matched employer verification and compensation details.",
+        ),
+        (
+            "PROMOTION_LETTER",
+            [
+                (r"\b(letter of promotion|promotion letter|promoted to the position|salary elevation)\b", 0.60),
+                (r"\b(new grade|salary scale|effective date|human resources)\b", 0.30),
+            ],
+            "Matched employment promotion notification details.",
+        ),
+        (
+            "EMPLOYER_INTRODUCTION_LETTER",
+            [
+                (r"\b(letter of introduction|introduce our employee|introductory letter)\b", 0.60),
+                (r"\b(employee|good standing|travelling to canada|employer)\b", 0.35),
+            ],
+            "Matched employer introductory reference letter.",
+        ),
+        (
+            "STUDY_LEAVE_LETTER",
+            [
+                (r"\b(study leave|letter of exemption|leave of absence to study|approved for study leave)\b", 0.60),
+                (r"\b(resumption of duty|academic leave|return to service|nysc)\b", 0.35),
+            ],
+            "Matched approved study leave / exemption authorization.",
+        ),
+        (
+            "WORK_ID_CARD",
+            [
+                (r"\b(staff id|work id|employee identity card|employee id card|identification badge)\b", 0.60),
+                (r"\b(staff no|employee no|department|valid thru)\b", 0.35),
+            ],
+            "Matched workplace staff identity badge fields.",
+        ),
+        (
+            "PAYSLIPS",
+            [
+                (r"\b(payslip|pay slip|salary slip|pay advice|earnings statement)\b", 0.55),
+                (r"\b(basic salary|gross pay|net pay|tax deduction|pension)\b", 0.38),
+            ],
+            "Matched monthly salary payslip earnings and deduction breakdown.",
+        ),
+        (
+            "LAND_DOCUMENTS",
+            [
+                (r"\b(land purchase agreement|land document|land allocation|letter of allocation|plot allocation)\b", 0.58),
+                (r"\b(parcel of land|plot no|hectares|square meters)\b", 0.35),
+            ],
+            "Matched land ownership / allocation documentation.",
+        ),
+        (
+            "CERTIFICATE_OF_OCCUPANCY",
+            [
+                (r"\b(certificate of occupancy|statutory right of occupancy|\bc of o\b)\b", 0.65),
+                (r"\b(governor|land use act|grant|term of years)\b", 0.30),
+            ],
+            "Matched statutory Certificate of Occupancy (C of O) title wording.",
+        ),
+        (
+            "SURVEY_PLAN",
+            [
+                (r"\b(survey plan|registered survey|beacons|surveyor general|charting)\b", 0.60),
+                (r"\b(coordinates|licensed surveyor|scale 1:|sq\.?\s*meters)\b", 0.35),
+            ],
+            "Matched cadastral survey plan and beacon coordinate details.",
+        ),
+        (
+            "DEED_OF_ASSIGNMENT",
+            [
+                (r"\b(deed of assignment|deed of conveyance|assignor|assignee)\b", 0.65),
+                (r"\b(hereditaments|witnesseth|consideration sum|perfect title)\b", 0.30),
+            ],
+            "Matched legal Deed of Assignment property transfer instrument.",
+        ),
+        (
+            "PROPERTY_VALUATION_REPORT",
+            [
+                (r"\b(property valuation report|valuation report|estate surveyors and valuers|market value|forced sale value)\b", 0.60),
+                (r"\b(appraised value|inspection of property|real estate valuation)\b", 0.35),
+            ],
+            "Matched professional real estate valuation and appraisal metrics.",
+        ),
+        (
+            "OTHER_ASSET_DOCUMENTS",
+            [
+                (r"\b(share certificate|treasury bill|investment certificate|fixed deposit receipt|mutual fund statement)\b", 0.58),
+                (r"\b(asset portfolio|units held|maturity value)\b", 0.35),
+            ],
+            "Matched financial asset / investment holding documentation.",
+        ),
+        (
+            "NOTARY_FEE_RECEIPT",
+            [
+                (r"\b(notary fee|notarization receipt|notary public|lawyer'?s? notary|legal notary)\b", 0.60),
+                (r"\b(100,?000|official payment receipt|notary seal|solicitor)\b", 0.35),
+            ],
+            "Matched Lawyer's Notary Fee payment / notarization confirmation.",
         ),
         (
             "POLICE_CLEARANCE",
