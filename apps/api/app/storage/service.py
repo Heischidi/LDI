@@ -1,6 +1,7 @@
 """S3-compatible (AWS S3, Cloudflare R2, MinIO) and private Local Vault storage backends."""
 
 from abc import ABC, abstractmethod
+from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
 
@@ -80,6 +81,14 @@ class S3StorageBackend(StorageBackend):
 
     def __init__(self) -> None:
         self.bucket = settings.S3_BUCKET_NAME
+        boto_cfg_kwargs: dict = {
+            "signature_version": "s3v4",
+            "connect_timeout": 10,
+            "read_timeout": 30,
+            "retries": {"max_attempts": 2},
+        }
+        if settings.S3_FORCE_PATH_STYLE or settings.S3_ENDPOINT_URL:
+            boto_cfg_kwargs["s3"] = {"addressing_style": "path"}
         self.client = boto3.client(
             "s3",
             region_name=settings.S3_REGION,
@@ -87,7 +96,7 @@ class S3StorageBackend(StorageBackend):
             aws_access_key_id=settings.S3_ACCESS_KEY_ID,
             aws_secret_access_key=settings.S3_SECRET_ACCESS_KEY,
             use_ssl=settings.S3_USE_SSL,
-            config=BotoConfig(signature_version="s3v4"),
+            config=BotoConfig(**boto_cfg_kwargs),
         )
         self._ensure_private_bucket()
 
@@ -107,7 +116,7 @@ class S3StorageBackend(StorageBackend):
             "Body": data,
             "ContentType": content_type,
         }
-        if settings.STORAGE_BACKEND == "s3":
+        if settings.STORAGE_BACKEND == "s3" and not settings.S3_ENDPOINT_URL:
             put_kwargs["ServerSideEncryption"] = "AES256"
         self.client.put_object(**put_kwargs)
         return key
@@ -135,8 +144,32 @@ class S3StorageBackend(StorageBackend):
         )
 
 
+@lru_cache(maxsize=4)
+def _get_cached_s3_backend(
+    backend_name: str,
+    bucket_name: str,
+    endpoint_url: str | None,
+    access_key_id: str | None,
+    secret_access_key: str | None,
+    region_name: str,
+    use_ssl: bool,
+    force_path_style: bool,
+) -> S3StorageBackend:
+    """Reuse initialized boto3 S3 client & bucket check across requests for the same config."""
+    return S3StorageBackend()
+
+
 def get_storage_backend() -> StorageBackend:
-    """Instantiate configured storage backend."""
+    """Instantiate or reuse configured storage backend."""
     if settings.STORAGE_BACKEND in {"s3", "r2", "minio"} and settings.S3_ACCESS_KEY_ID:
-        return S3StorageBackend()
+        return _get_cached_s3_backend(
+            settings.STORAGE_BACKEND,
+            settings.S3_BUCKET_NAME,
+            settings.S3_ENDPOINT_URL,
+            settings.S3_ACCESS_KEY_ID,
+            settings.S3_SECRET_ACCESS_KEY,
+            settings.S3_REGION,
+            settings.S3_USE_SSL,
+            settings.S3_FORCE_PATH_STYLE,
+        )
     return LocalVaultStorageBackend()

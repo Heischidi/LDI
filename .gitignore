@@ -33,9 +33,11 @@ pnpm-debug.log*
 .env
 .env.local
 .env.*.local
+.neon
 
 # OS & IDEs
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+.neon

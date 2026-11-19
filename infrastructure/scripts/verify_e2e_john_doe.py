@@ -14,6 +14,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         tmp_path = Path(tmpdir)
         os.environ["DATABASE_URL"] = f"sqlite:///{(tmp_path / 'e2e_verify.db').as_posix()}"
+        os.environ["STORAGE_BACKEND"] = "local_vault"
         os.environ["LOCAL_VAULT_PATH"] = (tmp_path / "vault").as_posix()
         os.environ["CELERY_ALWAYS_EAGER"] = "true"
         os.environ["AI_PROVIDER"] = "LOCAL_DETERMINISTIC"

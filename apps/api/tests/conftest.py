@@ -96,6 +96,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     vault_path.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path.as_posix()}")
+    monkeypatch.setenv("STORAGE_BACKEND", "local_vault")
     monkeypatch.setenv("LOCAL_VAULT_PATH", vault_path.as_posix())
     monkeypatch.setenv("CELERY_ALWAYS_EAGER", "true")
     monkeypatch.setenv("AI_PROVIDER", "LOCAL_DETERMINISTIC")

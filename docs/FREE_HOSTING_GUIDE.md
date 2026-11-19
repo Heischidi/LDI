@@ -5,7 +5,7 @@ This guide deploys **Leaders Document Intelligence (LDI)** at **$0/month** acros
 - **Frontend (`apps/web`)**: Vercel Hobby (free)
 - **Backend API (`apps/api`)**: Render Free Docker Web Service (configured in [`render.yaml`](../render.yaml))
 - **PostgreSQL Database**: Neon Free Tier (0.5 GB storage, serverless Postgres)
-- **Private Document Vault**: Cloudflare R2 Free Tier (10 GB/month storage, $0 egress)
+- **Private Document Vault**: Neon Object Storage (`assets` private bucket provisioned by `neon.ts`) — or Cloudflare R2 (10 GB/month free, $0 egress)
 - **Async Worker Mode**: Built-in eager/in-process thread execution (`CELERY_ALWAYS_EAGER=true`, no Redis or 2nd worker container needed)
 - **OCR & AI**: Free built-in `TESSERACT` inside the Docker image + `LOCAL_DETERMINISTIC` classifier (or switch `AI_PROVIDER=GEMINI` + `ALLOW_EXTERNAL_AI=true` with a free Google AI Studio API key)
 
@@ -20,44 +20,36 @@ Commit and push this workspace to a private or public GitHub repository so Verce
 
 ---
 
-## Step 2 — Create Free PostgreSQL Database (Neon)
+## Step 2 — Provision Neon PostgreSQL & Object Storage (`neon.ts`)
 
-1. Sign up at [neon.tech](https://neon.tech) (free tier, no credit card required).
-2. Create a project (e.g. `ldi-production`, region close to your users such as EU Frankfurt).
-3. Copy the **Connection String** (e.g. `postgresql://user:pass@ep-xxxx.eu-central-1.aws.neon.tech/neondb?sslmode=require`).
-   - LDI's backend config ([`config.py`](../apps/api/app/core/config.py)) automatically converts `postgres://` and `postgresql://` into `postgresql+psycopg://` for SQLAlchemy 2.0 + `psycopg` v3.
-
----
-
-## Step 3 — Create Free S3 Object Storage Bucket (Cloudflare R2)
-
-1. Sign in to the Cloudflare Dashboard → **R2 Object Storage**.
-2. Create a private bucket (e.g. `ldi-documents-private`).
-3. Create an **R2 API Token** with **Object Read & Write** permissions for that bucket.
-4. Record:
-   - `S3_ENDPOINT_URL`: `https://<YOUR_CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com`
-   - `S3_BUCKET_NAME`: `ldi-documents-private`
-   - `S3_ACCESS_KEY_ID` & `S3_SECRET_ACCESS_KEY`
-   - `S3_REGION`: `auto`
+1. Sign up at [neon.tech](https://neon.tech) and link/provision via CLI (`neon init` + `neon deploy`), which uses [`neon.ts`](../neon.ts) and populates `.env.local` with:
+   - `DATABASE_URL` (pooled runtime connection) and `DATABASE_URL_UNPOOLED` (direct connection for Alembic migrations)
+   - `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` for Neon Object Storage (`assets` private bucket)
+2. LDI's backend config ([`config.py`](../apps/api/app/core/config.py)) automatically:
+   - Converts `postgres://` and `postgresql://` into `postgresql+psycopg://` for SQLAlchemy 2.0 + `psycopg` v3.
+   - Enables `pool_pre_ping=True` and `pool_recycle=300` in [`database.py`](../apps/api/app/core/database.py).
+   - Maps Neon's `AWS_*` storage variables and enables S3 path-style addressing (`force_path_style`) for boto3.
 
 ---
 
-## Step 4 — Deploy Backend API on Render (`render.yaml`)
+## Step 3 — Deploy Backend API on Render (`render.yaml`)
 
 1. Sign in at [render.com](https://render.com) → **New +** → **Blueprint**.
-2. Connect your GitHub repository; Render automatically detects [`render.yaml`](../render.yaml) (`ldi-api` service using `./infrastructure/docker/Dockerfile.api`, free plan).
-3. Provide values when prompted for the `sync: false` variables:
-   - `DATABASE_URL`: Neon PostgreSQL connection string from Step 2
-   - `CORS_ORIGINS`: Temporary placeholder `http://localhost:3000` (you will update this in Step 6 once Vercel gives you your live domain)
-   - `S3_ENDPOINT_URL`, `S3_BUCKET_NAME`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`: Cloudflare R2 values from Step 3
+2. Connect your GitHub repository; Render automatically detects [`render.yaml`](../render.yaml) (`ldi-api` service using `./infrastructure/docker/Dockerfile.api`, Ohio region matching Neon `us-east-2`, free plan).
+3. Provide values from your Neon `.env.local` when prompted for the `sync: false` variables:
+   - `DATABASE_URL` & `DATABASE_URL_UNPOOLED`: From `.env.local`
+   - `S3_ENDPOINT_URL`: Value of `AWS_ENDPOINT_URL_S3` from `.env.local`
+   - `S3_ACCESS_KEY_ID`: Value of `AWS_ACCESS_KEY_ID` from `.env.local`
+   - `S3_SECRET_ACCESS_KEY`: Value of `AWS_SECRET_ACCESS_KEY` from `.env.local`
+   - `CORS_ORIGINS`: Temporary placeholder `http://localhost:3000` (update in Step 5 once Vercel gives you your live domain)
    - `GEMINI_API_KEY`: Optional (leave empty while `AI_PROVIDER=LOCAL_DETERMINISTIC`, or set `AI_PROVIDER=GEMINI`, `ALLOW_EXTERNAL_AI=true`, and paste your Gemini key)
 4. Wait for the Render Docker build & `/health` check to turn **Live**, then copy your Render URL (e.g. `https://ldi-api.onrender.com`).
 
-> **Note on Render Free Tier:** Free services spin down after 15 minutes of inactivity and take ~30–50 seconds to wake up on the first request. All data and files stay safely stored in Neon PostgreSQL and Cloudflare R2 across restarts.
+> **Note on Render Free Tier:** Free services spin down after 15 minutes of inactivity and take ~30–50 seconds to wake up on the first request. All data and files stay safely stored in Neon PostgreSQL and Neon Object Storage across restarts.
 
 ---
 
-## Step 5 — Deploy Frontend on Vercel
+## Step 4 — Deploy Frontend on Vercel
 
 1. Sign in at [vercel.com](https://vercel.com) → **Add New Project** → import the same GitHub repository.
 2. In **Configure Project**:
@@ -69,7 +61,7 @@ Commit and push this workspace to a private or public GitHub repository so Verce
 
 ---
 
-## Step 6 — Link CORS & Change Default Passwords
+## Step 5 — Link CORS & Change Default Passwords
 
 1. In Render → `ldi-api` → **Environment**, set:
    - `CORS_ORIGINS` = `https://<YOUR-VERCEL-DOMAIN>.vercel.app,http://localhost:3000`

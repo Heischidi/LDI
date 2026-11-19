@@ -16,7 +16,7 @@ def _build_engine():
     if db_url.startswith("sqlite"):
         connect_args = {"check_same_thread": False}
     else:
-        engine_kwargs.update({"pool_size": 10, "max_overflow": 20})
+        engine_kwargs.update({"pool_size": 10, "max_overflow": 20, "pool_recycle": 300})
 
     eng = create_engine(db_url, connect_args=connect_args, **engine_kwargs)
 
