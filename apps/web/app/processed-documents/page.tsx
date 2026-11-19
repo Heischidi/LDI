@@ -3,9 +3,9 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Eye, FileCheck2 } from "lucide-react";
+import { CheckCircle2, Download, Eye, FileCheck2 } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
-import { ldiApi } from "@/lib/api-client";
+import { downloadAuthorizedFile, ldiApi } from "@/lib/api-client";
 import { statusColorClasses } from "@/lib/utils";
 
 export default function ProcessedDocumentsPage() {
@@ -101,7 +101,20 @@ export default function ProcessedDocumentsPage() {
                       <span className="text-slate-400">No</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadAuthorizedFile(
+                          `/api/documents/${d.id}/preview?download=true`,
+                          d.generated_filename || d.original_filename
+                        )
+                      }
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-brand/30 text-brand hover:bg-emerald-50"
+                    >
+                      <Download className="h-3 w-3" />
+                      Download
+                    </button>
                     <Link
                       href={`/applicants/${d.applicant_id}`}
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-200 text-navy hover:bg-navy-50"

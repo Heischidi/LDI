@@ -154,7 +154,7 @@ def sync_applicant_checklist_and_naming(
 
             is_approved = bool(
                 current_cls
-                and current_cls.status == "APPROVED"
+                and current_cls.predicted_type_code != "UNKNOWN"
                 and not doc.is_excluded
                 and not doc.is_duplicate
             )

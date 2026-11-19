@@ -386,6 +386,18 @@ export default function ApplicantDetailPage() {
                             >
                               <Eye className="h-3.5 w-3.5" />
                             </button>
+                            <button
+                              onClick={() =>
+                                downloadAuthorizedFile(
+                                  `/api/documents/${doc.id}/preview?download=true`,
+                                  doc.proposed_filename || doc.original_filename
+                                )
+                              }
+                              title={`Download as ${doc.proposed_filename || doc.original_filename}`}
+                              className="p-1.5 rounded border border-slate-200 text-navy hover:bg-slate-100"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                            </button>
                             {!doc.is_excluded && (
                               <button
                                 onClick={() => approveMutation.mutate(doc.id)}
@@ -469,17 +481,34 @@ export default function ApplicantDetailPage() {
           <div className="bg-white rounded-2xl max-w-4xl w-full h-[85vh] flex flex-col overflow-hidden shadow-2xl">
             <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-semibold text-navy">{previewDoc.original_filename}</h3>
+                <h3 className="text-sm font-semibold text-navy">
+                  {previewDoc.proposed_filename || previewDoc.original_filename}
+                </h3>
                 <p className="text-xs text-slate-500">
-                  {previewDoc.detected_mime_type} · {previewDoc.extraction_method || "Raw Preview"}
+                  Original: {previewDoc.original_filename} · {previewDoc.detected_mime_type} ·{" "}
+                  {previewDoc.extraction_method || "Raw Preview"}
                 </p>
               </div>
-              <button
-                onClick={() => setPreviewDoc(null)}
-                className="px-3 py-1 rounded-lg border border-slate-300 text-xs font-medium"
-              >
-                Close
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() =>
+                    downloadAuthorizedFile(
+                      `/api/documents/${previewDoc.id}/preview?download=true`,
+                      previewDoc.proposed_filename || previewDoc.original_filename
+                    )
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-brand text-white text-xs font-medium hover:bg-brand-light"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Download Renamed
+                </button>
+                <button
+                  onClick={() => setPreviewDoc(null)}
+                  className="px-3 py-1 rounded-lg border border-slate-300 text-xs font-medium"
+                >
+                  Close
+                </button>
+              </div>
             </div>
             <div className="flex-1 grid md:grid-cols-3 min-h-0">
               <div className="md:col-span-2 bg-slate-100 h-full">

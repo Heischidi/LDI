@@ -245,13 +245,18 @@ def create_applicant_export_package(
         application_reference=applicant.application_reference,
     )
 
-    approved_procs: list[ProcessedDocument] = [
-        d.processed_document
-        for d in applicant.documents
-        if d.processed_document
-        and d.processed_document.is_approved_for_export
-        and not d.is_excluded
-    ]
+    approved_procs: list[ProcessedDocument] = []
+    for d in applicant.documents:
+        if d.is_excluded or d.is_duplicate or not d.processed_document:
+            continue
+        cls = next((c for c in d.classifications if c.is_current), None)
+        if cls and cls.predicted_type_code != "UNKNOWN":
+            d.processed_document.is_approved_for_export = True
+            if cls.status in {"CLASSIFIED", "CORRECTED", "PENDING_REVIEW", "MANUAL_REQUIRED"}:
+                cls.status = "APPROVED"
+                d.processing_status = "APPROVED"
+        if d.processed_document.is_approved_for_export:
+            approved_procs.append(d.processed_document)
 
     report_pdf_bytes = generate_processing_report_pdf(
         applicant=applicant,

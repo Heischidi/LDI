@@ -306,11 +306,16 @@ def get_document(
 def preview_document(
     document_id: str,
     request: Request,
+    download: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER)),
 ) -> Response:
-    """Serve private document bytes securely to authorized staff."""
-    doc = db.scalar(select(UploadedDocument).where(UploadedDocument.id == document_id))
+    """Serve private document bytes securely to authorized staff using the standardized filename when available."""
+    doc = db.scalar(
+        select(UploadedDocument)
+        .options(joinedload(UploadedDocument.processed_document))
+        .where(UploadedDocument.id == document_id)
+    )
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
 
@@ -320,13 +325,20 @@ def preview_document(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Stored document object not found.") from exc
 
+    resolved_filename = (
+        doc.processed_document.generated_filename
+        if doc.processed_document and doc.processed_document.generated_filename
+        else doc.original_filename
+    )
+    disposition = "attachment" if download else "inline"
+
     record_audit_event(
         db,
-        action="DOCUMENT_VIEWED",
+        action="DOCUMENT_DOWNLOADED" if download else "DOCUMENT_VIEWED",
         entity_type="uploaded_document",
         entity_id=doc.id,
         actor=current_user,
-        metadata={"preview": True},
+        metadata={"preview": not download, "download": download, "filename": resolved_filename},
         request=request,
     )
     db.commit()
@@ -334,7 +346,7 @@ def preview_document(
         content=content,
         media_type=doc.detected_mime_type,
         headers={
-            "Content-Disposition": f'inline; filename="{doc.original_filename}"',
+            "Content-Disposition": f'{disposition}; filename="{resolved_filename}"',
             "Cache-Control": "no-store",
         },
     )

@@ -330,14 +330,17 @@ def test_canada_study_visa_unnamed_files_organization(client: TestClient):
         actual_code = docs_by_orig[fname]["classification"]["predicted_type_code"]
         assert actual_code == expected_code, f"{fname}: expected {expected_code}, got {actual_code}"
 
-    # Approve all classified documents and export organized folder ZIP
-    for doc_obj in batch_status["documents"]:
-        app_doc_resp = client.post(f"/api/documents/{doc_obj['id']}/approve", headers=officer_hdrs)
-        assert app_doc_resp.status_code == 200, app_doc_resp.text
+    # Verify individual download immediately serves AI-proposed filename
+    nin_doc = docs_by_orig["slip_11.pdf"]
+    dl_nin = client.get(f"/api/documents/{nin_doc['id']}/preview?download=true", headers=officer_hdrs)
+    assert dl_nin.status_code == 200
+    assert 'filename="11_NIN_Slip.pdf"' in dl_nin.headers.get("content-disposition", "")
 
+    # Export directly after AI processing (without manual per-file approval)
     export_resp = client.post(f"/api/applicants/{applicant_id}/export", headers=officer_hdrs)
     assert export_resp.status_code == 200, export_resp.text
     exp = export_resp.json()
+    assert exp["approved_doc_count"] == len(unnamed_docs)
     folder_root = exp["folder_root"]
     assert "CANADA/STUDY/CHIDI_NWOSU_" in folder_root
 
