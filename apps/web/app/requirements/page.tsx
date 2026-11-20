@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Save, Tag } from "lucide-react";
+import { Globe2, Plus, Save, Tag, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { ldiApi } from "@/lib/api-client";
@@ -34,23 +34,45 @@ export default function RequirementsManagerPage() {
   });
 
   const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
+  const [countryFilter, setCountryFilter] = useState<string>("");
   const [newNaming, setNewNaming] = useState("");
   const [newDocName, setNewDocName] = useState("");
   const [newDocCode, setNewDocCode] = useState("");
   const [newDocAliases, setNewDocAliases] = useState("");
-  const [showNewSet, setShowNewSet] = useState(false);
+  const [activePanel, setActivePanel] = useState<"none" | "newSet" | "newCountry" | "newCategory">("none");
 
   const [setName, setSetName] = useState("");
   const [setDest, setSetDest] = useState("");
   const [setPurpose, setSetPurpose] = useState("");
   const [setCategory, setSetCategory] = useState("");
 
-  const activeSet = reqSets.find((s) => s.id === selectedSetId) || reqSets[0];
+  const [countryName, setCountryName] = useState("");
+  const [countryCode, setCountryCode] = useState("");
+  const [countryRegion, setCountryRegion] = useState("Europe");
+
+  const [catName, setCatName] = useState("");
+  const [catCode, setCatCode] = useState("");
+  const [catPurpose, setCatPurpose] = useState("");
+
+  const [addDocTypeId, setAddDocTypeId] = useState("");
+  const [addDocLevel, setAddDocLevel] = useState<"REQUIRED" | "OPTIONAL" | "CONDITIONAL">("REQUIRED");
+  const [addMinValidity, setAddMinValidity] = useState("");
+  const [addInstructions, setAddInstructions] = useState("");
+  const [bannerMsg, setBannerMsg] = useState<string | null>(null);
+
+  const filteredSets = countryFilter
+    ? reqSets.filter((rs) => rs.destination_id === countryFilter)
+    : reqSets;
+  const activeSet =
+    filteredSets.find((s) => s.id === selectedSetId) || filteredSets[0] || reqSets[0];
 
   const updateSetMutation = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Record<string, unknown> }) =>
       ldiApi.updateRequirementSet(id, payload),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["requirement-sets"] }),
+    onSuccess: () => {
+      setBannerMsg("Checklist updated and new immutable version snapshot saved.");
+      qc.invalidateQueries({ queryKey: ["requirement-sets"] });
+    },
   });
 
   const createTypeMutation = useMutation({
@@ -59,6 +81,7 @@ export default function RequirementsManagerPage() {
       setNewDocName("");
       setNewDocCode("");
       setNewDocAliases("");
+      setBannerMsg("Canonical document type created.");
       qc.invalidateQueries({ queryKey: ["document-types"] });
     },
   });
@@ -66,15 +89,38 @@ export default function RequirementsManagerPage() {
   const createSetMutation = useMutation({
     mutationFn: ldiApi.createRequirementSet,
     onSuccess: (created) => {
-      setShowNewSet(false);
+      setActivePanel("none");
+      setSetName("");
       setSelectedSetId(created.id);
+      setBannerMsg(`Created checklist: ${created.name}`);
       qc.invalidateQueries({ queryKey: ["requirement-sets"] });
     },
   });
 
-  const addItemToActiveSet = (docTypeId: string, level: "REQUIRED" | "OPTIONAL" | "CONDITIONAL") => {
-    if (!activeSet?.active_version) return;
-    const existingItems = activeSet.active_version.items.map((i) => ({
+  const createDestMutation = useMutation({
+    mutationFn: ldiApi.createDestination,
+    onSuccess: (created) => {
+      setActivePanel("none");
+      setCountryName("");
+      setCountryCode("");
+      setBannerMsg(`Added destination country: ${created.name} (${created.code})`);
+      qc.invalidateQueries({ queryKey: ["destinations"] });
+    },
+  });
+
+  const createCategoryMutation = useMutation({
+    mutationFn: ldiApi.createCategory,
+    onSuccess: (created) => {
+      setActivePanel("none");
+      setCatName("");
+      setCatCode("");
+      setBannerMsg(`Added visa type category: ${created.name}`);
+      qc.invalidateQueries({ queryKey: ["categories"] });
+    },
+  });
+
+  const mapExistingItems = () =>
+    (activeSet?.active_version?.items || []).map((i) => ({
       document_type_id: i.document_type_id,
       requirement_level: i.requirement_level,
       display_order: i.display_order,
@@ -82,45 +128,199 @@ export default function RequirementsManagerPage() {
       min_validity_days: i.min_validity_days,
       custom_instructions: i.custom_instructions,
     }));
+
+  const addItemToActiveSet = (
+    docTypeId: string,
+    level: "REQUIRED" | "OPTIONAL" | "CONDITIONAL",
+    minValidityDays?: number | null,
+    instructions?: string | null
+  ) => {
+    if (!activeSet?.active_version) return;
+    const existingItems = mapExistingItems();
     existingItems.push({
       document_type_id: docTypeId,
       requirement_level: level,
       display_order: existingItems.length + 1,
-      condition_explanation: level === "CONDITIONAL" ? "Conditional eligibility requirement" : null,
-      min_validity_days: null,
-      custom_instructions: null,
+      condition_explanation: level === "CONDITIONAL" ? instructions || "Conditional eligibility requirement" : null,
+      min_validity_days: minValidityDays || null,
+      custom_instructions: instructions || null,
     });
     updateSetMutation.mutate({
       id: activeSet.id,
       payload: {
-        change_notes: `Added requirement item (creates new version)`,
+        change_notes: "Added requirement rule via Requirements Manager",
         items: existingItems,
       },
+    });
+    setAddDocTypeId("");
+    setAddMinValidity("");
+    setAddInstructions("");
+  };
+
+  const changeItemLevel = (index: number, nextLevel: "REQUIRED" | "OPTIONAL" | "CONDITIONAL") => {
+    if (!activeSet?.active_version) return;
+    const updated = mapExistingItems().map((item, idx) =>
+      idx === index
+        ? {
+            ...item,
+            requirement_level: nextLevel,
+            condition_explanation:
+              nextLevel === "CONDITIONAL"
+                ? item.condition_explanation || "Conditional eligibility requirement"
+                : null,
+          }
+        : item
+    );
+    updateSetMutation.mutate({
+      id: activeSet.id,
+      payload: { change_notes: `Changed rule level to ${nextLevel}`, items: updated },
+    });
+  };
+
+  const removeItemFromActiveSet = (index: number) => {
+    if (!activeSet?.active_version) return;
+    const remaining = mapExistingItems()
+      .filter((_, idx) => idx !== index)
+      .map((item, idx) => ({ ...item, display_order: idx + 1 }));
+    if (remaining.length === 0) return;
+    updateSetMutation.mutate({
+      id: activeSet.id,
+      payload: { change_notes: "Removed requirement rule from checklist", items: remaining },
     });
   };
 
   return (
     <AppShell
       title="Requirements Manager"
-      subtitle="Configure destination/purpose checklists, conditional rules, document aliases, and naming conventions without modifying historical records."
+      subtitle="Configure per-country destination checklists, visa types, conditional rules, document aliases, and naming conventions without modifying historical records."
       actions={
         canEdit ? (
-          <button
-            onClick={() => setShowNewSet(!showNewSet)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-light"
-          >
-            <Plus className="h-4 w-4" />
-            New Requirement Set
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setActivePanel(activePanel === "newCountry" ? "none" : "newCountry")}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-medium hover:bg-slate-50"
+            >
+              <Globe2 className="h-3.5 w-3.5" />
+              Add Country
+            </button>
+            <button
+              onClick={() => setActivePanel(activePanel === "newCategory" ? "none" : "newCategory")}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-medium hover:bg-slate-50"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add Visa Type
+            </button>
+            <button
+              onClick={() => setActivePanel(activePanel === "newSet" ? "none" : "newSet")}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-light"
+            >
+              <Plus className="h-4 w-4" />
+              New Requirement Set
+            </button>
+          </div>
         ) : null
       }
     >
-      {showNewSet && canEdit && (
+      {bannerMsg && (
+        <div className="mb-4 rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-xs text-emerald-800 flex items-center justify-between">
+          <span>{bannerMsg}</span>
+          <button onClick={() => setBannerMsg(null)} className="underline">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {activePanel === "newCountry" && canEdit && (
+        <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6 shadow-sm">
+          <h3 className="text-sm font-semibold text-navy mb-3">Add Destination Country</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+            <input
+              placeholder="Country Name (e.g. Italy)"
+              value={countryName}
+              onChange={(e) => setCountryName(e.target.value)}
+              className="px-3 py-2 text-sm rounded-lg border border-slate-300"
+            />
+            <input
+              placeholder="ISO Code (e.g. IT)"
+              value={countryCode}
+              onChange={(e) => setCountryCode(e.target.value.toUpperCase())}
+              maxLength={10}
+              className="px-3 py-2 text-sm rounded-lg border border-slate-300 font-mono"
+            />
+            <input
+              placeholder="Region (e.g. Europe)"
+              value={countryRegion}
+              onChange={(e) => setCountryRegion(e.target.value)}
+              className="px-3 py-2 text-sm rounded-lg border border-slate-300"
+            />
+          </div>
+          <button
+            onClick={() =>
+              createDestMutation.mutate({
+                name: countryName,
+                code: countryCode,
+                region: countryRegion,
+              })
+            }
+            disabled={!countryName || !countryCode}
+            className="px-4 py-2 rounded-lg bg-navy text-white text-xs font-medium disabled:opacity-50"
+          >
+            Save Country
+          </button>
+        </div>
+      )}
+
+      {activePanel === "newCategory" && canEdit && (
+        <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6 shadow-sm">
+          <h3 className="text-sm font-semibold text-navy mb-3">Add Visa / Application Category</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+            <input
+              placeholder="Visa Type Name (e.g. Work Permit / Au Pair)"
+              value={catName}
+              onChange={(e) => setCatName(e.target.value)}
+              className="px-3 py-2 text-sm rounded-lg border border-slate-300"
+            />
+            <input
+              placeholder="CODE (e.g. WORK_PERMIT)"
+              value={catCode}
+              onChange={(e) => setCatCode(e.target.value.toUpperCase().replace(/\s+/g, "_"))}
+              className="px-3 py-2 text-sm rounded-lg border border-slate-300 font-mono"
+            />
+            <select
+              value={catPurpose}
+              onChange={(e) => setCatPurpose(e.target.value)}
+              className="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
+            >
+              <option value="">Default Purpose (Optional)...</option>
+              {purposes.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={() =>
+              createCategoryMutation.mutate({
+                name: catName,
+                code: catCode,
+                purpose_id: catPurpose || undefined,
+              })
+            }
+            disabled={!catName || !catCode}
+            className="px-4 py-2 rounded-lg bg-navy text-white text-xs font-medium disabled:opacity-50"
+          >
+            Save Visa Type
+          </button>
+        </div>
+      )}
+
+      {activePanel === "newSet" && canEdit && (
         <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6 shadow-sm">
           <h3 className="text-sm font-semibold text-navy mb-3">Create Requirement Set</h3>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-3">
             <input
-              placeholder="Checklist Name (e.g. Germany Study)"
+              placeholder="Checklist Name (e.g. Germany Study Visa)"
               value={setName}
               onChange={(e) => setSetName(e.target.value)}
               className="px-3 py-2 text-sm rounded-lg border border-slate-300"
@@ -154,7 +354,7 @@ export default function RequirementsManagerPage() {
               onChange={(e) => setSetCategory(e.target.value)}
               className="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
             >
-              <option value="">Category...</option>
+              <option value="">Visa Type / Category...</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -185,35 +385,51 @@ export default function RequirementsManagerPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Requirement Sets List */}
         <div className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Configured Checklists ({reqSets.length})
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Configured Checklists ({filteredSets.length})
+            </h3>
+            <select
+              value={countryFilter}
+              onChange={(e) => setCountryFilter(e.target.value)}
+              className="px-2.5 py-1 text-xs rounded-lg border border-slate-300 bg-white"
+            >
+              <option value="">All Countries ({reqSets.length})</option>
+              {destinations.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
           {isLoading ? (
             <div className="h-32 rounded-xl bg-white border border-slate-200 animate-pulse" />
           ) : (
-            reqSets.map((rs) => (
-              <button
-                key={rs.id}
-                onClick={() => {
-                  setSelectedSetId(rs.id);
-                  setNewNaming(rs.naming_convention);
-                }}
-                className={`w-full text-left p-4 rounded-xl border transition-all ${
-                  activeSet?.id === rs.id
-                    ? "bg-white border-navy ring-2 ring-navy/10 shadow-sm"
-                    : "bg-white border-slate-200 hover:border-slate-300"
-                }`}
-              >
-                <div className="font-semibold text-sm text-navy">{rs.name}</div>
-                <div className="text-xs text-slate-500 mt-1">
-                  {rs.destination_name} · {rs.purpose_name} · {rs.category_name}
-                </div>
-                <div className="text-[11px] text-brand font-medium mt-2">
-                  Active Version v{rs.active_version?.version_number || 1} ·{" "}
-                  {rs.active_version?.items.length || 0} rules
-                </div>
-              </button>
-            ))
+            <div className="space-y-2.5 max-h-[680px] overflow-y-auto pr-1">
+              {filteredSets.map((rs) => (
+                <button
+                  key={rs.id}
+                  onClick={() => {
+                    setSelectedSetId(rs.id);
+                    setNewNaming(rs.naming_convention);
+                  }}
+                  className={`w-full text-left p-4 rounded-xl border transition-all ${
+                    activeSet?.id === rs.id
+                      ? "bg-white border-navy ring-2 ring-navy/10 shadow-sm"
+                      : "bg-white border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  <div className="font-semibold text-sm text-navy">{rs.name}</div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    {rs.destination_name} · {rs.purpose_name} · {rs.category_name}
+                  </div>
+                  <div className="text-[11px] text-brand font-medium mt-2">
+                    Active Version v{rs.active_version?.version_number || 1} ·{" "}
+                    {rs.active_version?.items.length || 0} rules
+                  </div>
+                </button>
+              ))}
+            </div>
           )}
         </div>
 
@@ -279,19 +495,37 @@ export default function RequirementsManagerPage() {
                       <th className="px-3 py-2">Requirement</th>
                       <th className="px-3 py-2">Min Validity</th>
                       <th className="px-3 py-2">Instructions / Condition</th>
+                      {canEdit && <th className="px-3 py-2 text-right">Remove</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {activeSet.active_version?.items.map((item) => (
+                    {activeSet.active_version?.items.map((item, idx) => (
                       <tr key={item.id}>
                         <td className="px-3 py-2 font-mono text-slate-500">{item.display_order}</td>
                         <td className="px-3 py-2 font-medium text-slate-900">
                           {item.document_type_name}
                         </td>
                         <td className="px-3 py-2">
-                          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">
-                            {item.requirement_level}
-                          </span>
+                          {canEdit ? (
+                            <select
+                              value={item.requirement_level}
+                              onChange={(e) =>
+                                changeItemLevel(
+                                  idx,
+                                  e.target.value as "REQUIRED" | "OPTIONAL" | "CONDITIONAL"
+                                )
+                              }
+                              className="px-2 py-1 rounded border border-slate-200 bg-white text-xs font-medium text-slate-700"
+                            >
+                              <option value="REQUIRED">REQUIRED</option>
+                              <option value="CONDITIONAL">CONDITIONAL</option>
+                              <option value="OPTIONAL">OPTIONAL</option>
+                            </select>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">
+                              {item.requirement_level}
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-slate-600">
                           {item.min_validity_days ? `${item.min_validity_days} days` : "—"}
@@ -299,6 +533,19 @@ export default function RequirementsManagerPage() {
                         <td className="px-3 py-2 text-slate-500">
                           {item.condition_explanation || item.custom_instructions || "—"}
                         </td>
+                        {canEdit && (
+                          <td className="px-3 py-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() => removeItemFromActiveSet(idx)}
+                              disabled={(activeSet.active_version?.items.length || 0) <= 1}
+                              title="Remove from checklist"
+                              className="p-1 rounded text-red-600 hover:bg-red-50 disabled:opacity-30"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -306,24 +553,64 @@ export default function RequirementsManagerPage() {
               </div>
 
               {canEdit && (
-                <div className="pt-3 border-t border-slate-200 flex flex-wrap items-center gap-2 text-xs">
-                  <span className="text-slate-600 font-medium">Quick-append rule (creates new version):</span>
-                  <select
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        addItemToActiveSet(e.target.value, "REQUIRED");
-                        e.target.value = "";
+                <div className="pt-3 border-t border-slate-200 bg-slate-50/70 p-3.5 rounded-lg space-y-2 text-xs">
+                  <div className="text-slate-700 font-semibold">
+                    Add Document Rule to Checklist (creates new version)
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
+                    <select
+                      value={addDocTypeId}
+                      onChange={(e) => setAddDocTypeId(e.target.value)}
+                      className="sm:col-span-2 px-2.5 py-1.5 rounded border border-slate-300 bg-white"
+                    >
+                      <option value="">Select Document Type...</option>
+                      {docTypes.map((dt) => (
+                        <option key={dt.id} value={dt.id}>
+                          {dt.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={addDocLevel}
+                      onChange={(e) =>
+                        setAddDocLevel(e.target.value as "REQUIRED" | "OPTIONAL" | "CONDITIONAL")
                       }
-                    }}
-                    className="px-2.5 py-1.5 rounded border border-slate-300 bg-white"
-                  >
-                    <option value="">+ Add Required Document...</option>
-                    {docTypes.map((dt) => (
-                      <option key={dt.id} value={dt.id}>
-                        {dt.name}
-                      </option>
-                    ))}
-                  </select>
+                      className="px-2.5 py-1.5 rounded border border-slate-300 bg-white"
+                    >
+                      <option value="REQUIRED">REQUIRED</option>
+                      <option value="CONDITIONAL">CONDITIONAL</option>
+                      <option value="OPTIONAL">OPTIONAL</option>
+                    </select>
+                    <input
+                      type="number"
+                      min={1}
+                      placeholder="Min days (opt)"
+                      value={addMinValidity}
+                      onChange={(e) => setAddMinValidity(e.target.value)}
+                      className="px-2.5 py-1.5 rounded border border-slate-300 bg-white"
+                    />
+                    <input
+                      placeholder="Custom notes / condition"
+                      value={addInstructions}
+                      onChange={(e) => setAddInstructions(e.target.value)}
+                      className="px-2.5 py-1.5 rounded border border-slate-300 bg-white"
+                    />
+                    <button
+                      type="button"
+                      disabled={!addDocTypeId || updateSetMutation.isPending}
+                      onClick={() =>
+                        addItemToActiveSet(
+                          addDocTypeId,
+                          addDocLevel,
+                          addMinValidity ? Number(addMinValidity) : null,
+                          addInstructions || null
+                        )
+                      }
+                      className="px-3 py-1.5 rounded bg-navy text-white font-medium hover:bg-navy-700 disabled:opacity-40"
+                    >
+                      + Add Rule
+                    </button>
+                  </div>
                 </div>
               )}
 

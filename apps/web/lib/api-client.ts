@@ -129,6 +129,11 @@ export const ldiApi = {
   getDashboardMetrics: () => apiRequest<DashboardMetrics>("/api/dashboard/metrics"),
 
   listDestinations: () => apiRequest<Destination[]>("/api/reference/destinations"),
+  createDestination: (payload: { name: string; code: string; region?: string }) =>
+    apiRequest<Destination>("/api/reference/destinations", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   listPurposes: () => apiRequest<TravelPurpose[]>("/api/reference/purposes"),
   listCategories: (params = "") =>
     apiRequest<ApplicationCategory[]>(`/api/reference/categories${params}`),

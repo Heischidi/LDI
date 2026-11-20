@@ -85,12 +85,16 @@ ROLE_DEFINITIONS = {
 }
 
 DEFAULT_DESTINATIONS = [
-    ("United Kingdom", "GB", "Europe"),
     ("Canada", "CA", "North America"),
     ("United States", "US", "North America"),
-    ("Australia", "AU", "Oceania"),
+    ("United Kingdom", "GB", "Europe"),
+    ("Malta", "MT", "Europe"),
+    ("France", "FR", "Europe"),
     ("Germany", "DE", "Europe"),
     ("Ireland", "IE", "Europe"),
+    ("Netherlands", "NL", "Europe"),
+    ("Spain", "ES", "Europe"),
+    ("Australia", "AU", "Oceania"),
 ]
 
 DEFAULT_PURPOSES = [
@@ -215,12 +219,13 @@ def seed_initial_data(db: Session) -> None:
             db.flush()
         purpose_map[code] = purpose
 
-    # 5. Application Categories
+    # 5. Application Categories (reusable across all active destination countries)
     categories_seed = [
-        ("Student Visa", "STUDENT_VISA", "GB", "STUDY", "Tier 4 / Student Route Academic Visa Package"),
+        ("Student Visa", "STUDENT_VISA", None, "STUDY", "University / College Student Visa Package"),
         ("Postgraduate Study Visa", "POSTGRAD_STUDY_VISA", None, "STUDY", "Postgraduate university study application"),
-        ("Study Permit", "STUDY_PERMIT", "CA", "STUDY", "Canadian Study Permit document package"),
+        ("Study Permit", "STUDY_PERMIT", None, "STUDY", "Canadian / National Study Permit document package"),
         ("Standard Visitor Visa", "STANDARD_VISITOR", None, "TOURISM", "Short-stay tourist visitor application"),
+        ("Schengen Tourist / Visitor Visa", "SCHENGEN_VISITOR_VISA", None, "TOURISM", "Schengen short-stay tourist / visitor visa package"),
         ("Business Visitor Visa", "BUSINESS_VISITOR", None, "BUSINESS", "Business conference & corporate visit"),
         ("Skilled Worker Visa", "SKILLED_WORKER", None, "WORK", "Sponsored skilled employment visa"),
         ("Family Visit Visa", "FAMILY_VISIT_VISA", None, "FAMILY_VISIT", "Family visit & dependent travel"),
@@ -239,6 +244,8 @@ def seed_initial_data(db: Session) -> None:
             )
             db.add(cat)
             db.flush()
+        else:
+            cat.destination_id = dest_map[dest_code].id if dest_code else None
         cat_map[code] = cat
 
     # 6. Document Types & Aliases
@@ -513,6 +520,89 @@ def seed_initial_data(db: Session) -> None:
                     document_type_id=doc_type_map[code].id,
                     requirement_level=level,
                     display_order=idx,
+                    allow_multiple_versions=True,
+                )
+            )
+
+    # 7d. Baseline Study & Visitor Checklists Across Active Countries (US, MT, FR, DE, IE, NL, ES, CA Tourism)
+    default_study_items = [
+        ("INTERNATIONAL_PASSPORT", "REQUIRED"),
+        ("ADMISSION_LETTER", "REQUIRED"),
+        ("ACADEMIC_TRANSCRIPT", "REQUIRED"),
+        ("ACADEMIC_CERTIFICATES", "REQUIRED"),
+        ("BANK_STATEMENT", "REQUIRED"),
+        ("BIRTH_CERTIFICATE", "REQUIRED"),
+        ("STATEMENT_OF_PURPOSE", "REQUIRED"),
+        ("ENGLISH_PROFICIENCY", "OPTIONAL"),
+        ("PASSPORT_PHOTOGRAPH", "REQUIRED"),
+        ("POLICE_CLEARANCE", "OPTIONAL"),
+    ]
+    default_visitor_items = [
+        ("INTERNATIONAL_PASSPORT", "REQUIRED"),
+        ("BANK_STATEMENT", "REQUIRED"),
+        ("EMPLOYMENT_LETTER", "REQUIRED"),
+        ("TRAVEL_ITINERARY", "REQUIRED"),
+        ("HOTEL_BOOKING", "REQUIRED"),
+        ("PASSPORT_PHOTOGRAPH", "REQUIRED"),
+    ]
+
+    baseline_sets = [
+        ("United States - Study (Student Visa F-1)", "US", "STUDY", "STUDENT_VISA", default_study_items),
+        ("United States - Tourism (Standard Visitor B1/B2)", "US", "TOURISM", "STANDARD_VISITOR", default_visitor_items),
+        ("Canada - Tourism (Standard Visitor Visa)", "CA", "TOURISM", "STANDARD_VISITOR", default_visitor_items),
+        ("Malta - Study (Student Visa)", "MT", "STUDY", "STUDENT_VISA", default_study_items),
+        ("Malta - Tourism (Schengen Visitor Visa)", "MT", "TOURISM", "SCHENGEN_VISITOR_VISA", default_visitor_items),
+        ("France - Study (Student Visa)", "FR", "STUDY", "STUDENT_VISA", default_study_items),
+        ("France - Tourism (Schengen Visitor Visa)", "FR", "TOURISM", "SCHENGEN_VISITOR_VISA", default_visitor_items),
+        ("Germany - Study (Student Visa)", "DE", "STUDY", "STUDENT_VISA", default_study_items),
+        ("Germany - Tourism (Schengen Visitor Visa)", "DE", "TOURISM", "SCHENGEN_VISITOR_VISA", default_visitor_items),
+        ("Ireland - Study (Student Visa)", "IE", "STUDY", "STUDENT_VISA", default_study_items),
+        ("Ireland - Tourism (Standard Visitor Visa)", "IE", "TOURISM", "STANDARD_VISITOR", default_visitor_items),
+        ("Netherlands - Study (Student Visa)", "NL", "STUDY", "STUDENT_VISA", default_study_items),
+        ("Netherlands - Tourism (Schengen Visitor Visa)", "NL", "TOURISM", "SCHENGEN_VISITOR_VISA", default_visitor_items),
+        ("Spain - Study (Student Visa)", "ES", "STUDY", "STUDENT_VISA", default_study_items),
+        ("Spain - Tourism (Schengen Visitor Visa)", "ES", "TOURISM", "SCHENGEN_VISITOR_VISA", default_visitor_items),
+    ]
+
+    for set_title, d_code, p_code, c_code, base_items in baseline_sets:
+        existing_set = db.scalar(
+            select(RequirementSet).where(
+                RequirementSet.destination_id == dest_map[d_code].id,
+                RequirementSet.purpose_id == purpose_map[p_code].id,
+                RequirementSet.category_id == cat_map[c_code].id,
+            )
+        )
+        if existing_set:
+            continue
+        req_set = RequirementSet(
+            name=set_title,
+            destination_id=dest_map[d_code].id,
+            purpose_id=purpose_map[p_code].id,
+            category_id=cat_map[c_code].id,
+            applicant_type="STANDARD",
+            naming_convention="{document_order}_{document_type}.{extension}",
+            folder_template="LEADERS_EDU_TOUR_DOCUMENTS/{DESTINATION}/{PURPOSE}/{APPLICANT_NAME}_{APPLICATION_REFERENCE}",
+            is_active=True,
+        )
+        db.add(req_set)
+        db.flush()
+        ver = RequirementVersion(
+            requirement_set_id=req_set.id,
+            version_number=1,
+            effective_from=datetime.now(timezone.utc),
+            change_notes=f"Initial configurable baseline checklist for {set_title}.",
+            created_by_id=super_admin.id if super_admin else None,
+        )
+        db.add(ver)
+        db.flush()
+        req_set.active_version_id = ver.id
+        for order_idx, (doc_code, req_level) in enumerate(base_items, start=1):
+            db.add(
+                DocumentRequirement(
+                    requirement_version_id=ver.id,
+                    document_type_id=doc_type_map[doc_code].id,
+                    requirement_level=req_level,
+                    display_order=order_idx,
                     allow_multiple_versions=True,
                 )
             )
