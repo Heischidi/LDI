@@ -142,8 +142,34 @@ export interface ApplicantSummary {
   updated_at: string;
 }
 
+export interface StageMilestoneOption {
+  code: string;
+  label: string;
+  applicant_status: string;
+  default_subject: string;
+  default_message: string;
+}
+
+export interface StageUpdateItem {
+  id: string;
+  applicant_id: string;
+  track: string;
+  stage_code: string;
+  stage_label: string;
+  subject: string;
+  message_body: string;
+  recipient_email: string;
+  delivery_status: string;
+  delivery_provider: string;
+  delivery_detail?: string | null;
+  sent_by_name?: string | null;
+  created_at: string;
+}
+
 export interface ApplicantDetail extends ApplicantSummary {
   passport_number_masked?: string | null;
+  current_stage_code?: string | null;
+  current_stage_label?: string | null;
   eligibility_context: Record<string, unknown>;
   checklist: ChecklistItem[];
   documents: DocumentRecord[];
@@ -164,6 +190,7 @@ export interface ApplicantDetail extends ApplicantSummary {
     download_url: string;
     created_at: string;
   }>;
+  stage_updates?: StageUpdateItem[];
 }
 
 export interface DocumentType {

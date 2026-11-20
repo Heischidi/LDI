@@ -148,6 +148,13 @@ export const ldiApi = {
       body: JSON.stringify(payload),
     }),
   getApplicant: (id: string) => apiRequest<ApplicantDetail>(`/api/applicants/${id}`),
+  getStageCatalog: () =>
+    apiRequest<Record<string, import("@/types").StageMilestoneOption[]>>("/api/applicants/stages/catalog"),
+  sendStageUpdate: (applicantId: string, payload: Record<string, unknown>) =>
+    apiRequest<import("@/types").StageUpdateItem>(`/api/applicants/${applicantId}/stage-updates`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   archiveApplicant: (id: string) =>
     apiRequest<{ message: string }>(`/api/applicants/${id}`, { method: "DELETE" }),
 

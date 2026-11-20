@@ -17,6 +17,14 @@ export default function SettingsPage() {
   const [allowExternalAi, setAllowExternalAi] = useState(false);
   const [ocrProvider, setOcrProvider] = useState("TESSERACT");
   const [retentionDays, setRetentionDays] = useState(365);
+  const [emailProvider, setEmailProvider] = useState("AUTO");
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState(587);
+  const [smtpUsername, setSmtpUsername] = useState("");
+  const [smtpPassword, setSmtpPassword] = useState("");
+  const [smtpFromEmail, setSmtpFromEmail] = useState("notifications@leaders.edu");
+  const [smtpFromName, setSmtpFromName] = useState("Leaders Edu Tour Ltd");
+  const [resendApiKey, setResendApiKey] = useState("");
   const [savedBanner, setSavedBanner] = useState<string | null>(null);
 
   useEffect(() => {
@@ -29,6 +37,17 @@ export default function SettingsPage() {
     if (ocr) setOcrProvider(String(ocr.provider || "TESSERACT"));
     const sec = settings.find((s) => s.key === "security.upload_limits")?.value_json;
     if (sec && sec.retention_days) setRetentionDays(Number(sec.retention_days));
+    const notif = settings.find((s) => s.key === "notifications.email")?.value_json;
+    if (notif) {
+      setEmailProvider(String(notif.provider || "AUTO"));
+      setSmtpHost(String(notif.smtp_host || ""));
+      setSmtpPort(Number(notif.smtp_port || 587));
+      setSmtpUsername(String(notif.smtp_username || ""));
+      setSmtpPassword(String(notif.smtp_password || ""));
+      setSmtpFromEmail(String(notif.from_email || "notifications@leaders.edu"));
+      setSmtpFromName(String(notif.from_name || "Leaders Edu Tour Ltd"));
+      setResendApiKey(String(notif.resend_api_key || ""));
+    }
   }, [settings]);
 
   const saveMutation = useMutation({
@@ -43,6 +62,17 @@ export default function SettingsPage() {
         max_file_mb: 25,
         max_batch_files: 50,
         retention_days: retentionDays,
+      });
+      await ldiApi.updateSetting("notifications.email", {
+        provider: emailProvider,
+        smtp_host: smtpHost,
+        smtp_port: smtpPort,
+        smtp_username: smtpUsername,
+        smtp_password: smtpPassword,
+        smtp_use_tls: smtpPort !== 465,
+        from_email: smtpFromEmail,
+        from_name: smtpFromName,
+        resend_api_key: resendApiKey,
       });
     },
     onSuccess: () => {
@@ -115,6 +145,113 @@ export default function SettingsPage() {
                 </p>
               </div>
             </label>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
+            <h2 className="text-sm font-semibold text-navy">
+              Client Email Reminders (Real-Time Delivery)
+            </h2>
+            <p className="text-xs text-slate-500">
+              Configure SMTP (e.g. Gmail App Password, Zoho, Microsoft 365) or a Resend API key so clients receive live inbox notifications whenever an officer updates a stage milestone.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  Delivery Mode
+                </label>
+                <select
+                  value={emailProvider}
+                  onChange={(e) => setEmailProvider(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
+                >
+                  <option value="AUTO">Auto (Resend → SMTP → Outbox)</option>
+                  <option value="SMTP">SMTP Server</option>
+                  <option value="RESEND">Resend API</option>
+                  <option value="OUTBOX">Outbox Audit Only</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  Sender Name
+                </label>
+                <input
+                  value={smtpFromName}
+                  onChange={(e) => setSmtpFromName(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  Sender Email
+                </label>
+                <input
+                  type="email"
+                  value={smtpFromEmail}
+                  onChange={(e) => setSmtpFromEmail(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  SMTP Host (e.g. smtp.gmail.com)
+                </label>
+                <input
+                  value={smtpHost}
+                  onChange={(e) => setSmtpHost(e.target.value)}
+                  placeholder="smtp.gmail.com"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  SMTP Port
+                </label>
+                <input
+                  type="number"
+                  value={smtpPort}
+                  onChange={(e) => setSmtpPort(Number(e.target.value))}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  SMTP Username
+                </label>
+                <input
+                  value={smtpUsername}
+                  onChange={(e) => setSmtpUsername(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  SMTP Password / App Password
+                </label>
+                <input
+                  type="password"
+                  value={smtpPassword}
+                  onChange={(e) => setSmtpPassword(e.target.value)}
+                  placeholder="Optional if using Resend"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  Resend API Key (Optional Alternative)
+                </label>
+                <input
+                  type="password"
+                  value={resendApiKey}
+                  onChange={(e) => setResendApiKey(e.target.value)}
+                  placeholder="re_..."
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                />
+              </div>
+            </div>
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">

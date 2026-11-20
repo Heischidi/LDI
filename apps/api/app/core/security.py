@@ -151,6 +151,8 @@ def sanitize_log_metadata(data: Any) -> Any:
             "access_token",
             "refresh_token",
             "api_key",
+            "smtp_password",
+            "resend_api_key",
         }
         for k, v in data.items():
             if k.lower() in sensitive_keys:

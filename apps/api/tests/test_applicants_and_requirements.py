@@ -113,3 +113,68 @@ def test_requirements_matching_and_version_preservation(client: TestClient):
     reloaded = client.get(f"/api/applicants/{applicant_id}", headers=officer_hdrs).json()
     assert reloaded["requirement_version_id"] == v1_id
     assert len(reloaded["checklist"]) == v1_count
+
+
+def test_client_stage_updates_and_email_reminders(client: TestClient):
+    officer_hdrs = auth_headers(client, "officer@leaders.edu", "LeadersOfficer!2026")
+    dests = {d["code"]: d for d in client.get("/api/reference/destinations", headers=officer_hdrs).json()}
+    purps = {p["code"]: p for p in client.get("/api/reference/purposes", headers=officer_hdrs).json()}
+    cats = {c["code"]: c for c in client.get("/api/reference/categories", headers=officer_hdrs).json()}
+
+    catalog_resp = client.get("/api/applicants/stages/catalog", headers=officer_hdrs)
+    assert catalog_resp.status_code == 200
+    catalog = catalog_resp.json()
+    assert "ADMISSION" in catalog and "VISA_PROCESSING" in catalog and "DOCUMENT_REMINDER" in catalog
+
+    app_resp = client.post(
+        "/api/applicants",
+        json={
+            "first_name": "Kelechi",
+            "last_name": "Okoro",
+            "email": "kelechi.okoro@example.com",
+            "phone_number": "+2348055551111",
+            "nationality": "Nigerian",
+            "destination_id": dests["CA"]["id"],
+            "purpose_id": purps["STUDY"]["id"],
+            "category_id": cats["STUDY_PERMIT"]["id"],
+        },
+        headers=officer_hdrs,
+    )
+    assert app_resp.status_code == 201
+    applicant_id = app_resp.json()["id"]
+
+    # Send a Missing Documents Reminder (should include auto-detected missing items in body)
+    rem_resp = client.post(
+        f"/api/applicants/{applicant_id}/stage-updates",
+        json={
+            "track": "DOCUMENT_REMINDER",
+            "stage_code": "MISSING_DOCUMENTS_REMINDER",
+            "include_missing_checklist": True,
+            "update_applicant_status": True,
+        },
+        headers=officer_hdrs,
+    )
+    assert rem_resp.status_code == 201, rem_resp.text
+    rem = rem_resp.json()
+    assert rem["recipient_email"] == "kelechi.okoro@example.com"
+    assert rem["delivery_status"] == "LOGGED_READY"
+    assert "Outstanding Required Documents" in rem["message_body"]
+    assert "International Passport" in rem["message_body"]
+
+    # Update milestone to Visa Approved
+    visa_resp = client.post(
+        f"/api/applicants/{applicant_id}/stage-updates",
+        json={
+            "track": "VISA_PROCESSING",
+            "stage_code": "VISA_APPROVED",
+            "include_missing_checklist": False,
+            "update_applicant_status": True,
+        },
+        headers=officer_hdrs,
+    )
+    assert visa_resp.status_code == 201, visa_resp.text
+
+    detail = client.get(f"/api/applicants/{applicant_id}", headers=officer_hdrs).json()
+    assert detail["status"] == "VISA_APPROVED"
+    assert detail["current_stage_code"] == "VISA_APPROVED"
+    assert len(detail["stage_updates"]) == 2

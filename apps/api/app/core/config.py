@@ -165,6 +165,17 @@ class Settings(BaseSettings):
     # Retention
     DEFAULT_RETENTION_DAYS: int = 365
 
+    # Email Notifications (SMTP / Resend API)
+    EMAIL_PROVIDER: Literal["AUTO", "SMTP", "RESEND", "OUTBOX"] = "AUTO"
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_USE_TLS: bool = True
+    SMTP_FROM_EMAIL: str = "notifications@leaders.edu"
+    SMTP_FROM_NAME: str = "Leaders Edu Tour Ltd"
+    RESEND_API_KEY: str = ""
+
     @property
     def resolved_vault_path(self) -> Path:
         """Resolve local vault path outside the source code directory."""

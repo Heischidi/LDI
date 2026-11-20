@@ -353,6 +353,12 @@ class Applicant(Base):
     checklist_statuses: Mapped[list["ApplicantDocumentStatus"]] = relationship(
         "ApplicantDocumentStatus", back_populates="applicant", cascade="all, delete-orphan"
     )
+    stage_updates: Mapped[list["ClientStageUpdate"]] = relationship(
+        "ClientStageUpdate",
+        back_populates="applicant",
+        cascade="all, delete-orphan",
+        order_by="ClientStageUpdate.created_at.desc()",
+    )
 
 
 class UploadBatch(Base):
@@ -680,3 +686,28 @@ class SystemSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
+
+
+class ClientStageUpdate(Base):
+    __tablename__ = "client_stage_updates"
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=_uuid_str)
+    applicant_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey("applicants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    track: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    stage_code: Mapped[str] = mapped_column(String(60), nullable=False)
+    stage_label: Mapped[str] = mapped_column(String(150), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    message_body: Mapped[str] = mapped_column(Text, nullable=False)
+    recipient_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    delivery_status: Mapped[str] = mapped_column(String(40), default="LOGGED_READY", nullable=False)
+    delivery_provider: Mapped[str] = mapped_column(String(40), default="OUTBOX", nullable=False)
+    delivery_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_by_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    sent_by_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False, index=True)
+
+    applicant: Mapped["Applicant"] = relationship("Applicant", back_populates="stage_updates")

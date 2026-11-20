@@ -14,6 +14,7 @@ from app.models.entities import (
     Applicant,
     ApplicantDocumentStatus,
     ApplicationCategory,
+    ClientStageUpdate,
     Destination,
     DocumentRequirement,
     ExportPackage,
@@ -34,12 +35,21 @@ from app.schemas.applicants import (
     DestinationCreate,
     DestinationRead,
     OfficerBrief,
+    StageUpdateCreate,
+    StageUpdateRead,
     TravelPurposeCreate,
     TravelPurposeRead,
 )
 from app.schemas.common import MessageResponse, PaginatedResponse
 from app.services.audit_service import record_audit_event
 from app.services.checklist_service import sync_applicant_checklist_and_naming
+from app.services.email_service import (
+    STAGE_CATALOG,
+    build_stage_email_bodies,
+    dispatch_client_email,
+    find_stage_template,
+    render_stage_message_text,
+)
 from app.services.requirements_engine import find_matching_requirement_set, get_active_version
 
 router = APIRouter(tags=["Applicants & Travel Reference"])
@@ -489,11 +499,19 @@ def get_applicant_detail(
         .where(ExportPackage.applicant_id == app.id)
         .order_by(ExportPackage.created_at.desc())
     ).all()
+    stage_updates = db.scalars(
+        select(ClientStageUpdate)
+        .where(ClientStageUpdate.applicant_id == app.id)
+        .order_by(ClientStageUpdate.created_at.desc())
+    ).all()
+    ctx = app.eligibility_context or {}
 
     return ApplicantDetail(
         **summary.model_dump(),
         passport_number_masked=_mask_passport(app.passport_number),
-        eligibility_context=app.eligibility_context or {},
+        current_stage_code=ctx.get("current_stage_code") or (stage_updates[0].stage_code if stage_updates else None),
+        current_stage_label=ctx.get("current_stage_label") or (stage_updates[0].stage_label if stage_updates else None),
+        eligibility_context=ctx,
         checklist=checklist_items,
         documents=docs_serialized,
         batches=[
@@ -519,7 +537,128 @@ def get_applicant_detail(
             }
             for e in exports
         ],
+        stage_updates=[StageUpdateRead.model_validate(s) for s in stage_updates],
     )
+
+
+@router.get("/applicants/stages/catalog")
+def get_stage_catalog(
+    _user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER)),
+) -> dict:
+    """Return available stage milestones across Admission, Visa Processing, and Document Reminders."""
+    return STAGE_CATALOG
+
+
+@router.post("/applicants/{applicant_id}/stage-updates", response_model=StageUpdateRead, status_code=201)
+def send_applicant_stage_update(
+    applicant_id: str,
+    payload: StageUpdateCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
+) -> StageUpdateRead:
+    """Update applicant stage milestone and dispatch real-time email notification/reminder to client."""
+    sync_applicant_checklist_and_naming(db, applicant_id)
+    app = db.scalar(
+        select(Applicant)
+        .options(
+            joinedload(Applicant.destination),
+            joinedload(Applicant.purpose),
+            joinedload(Applicant.category),
+            joinedload(Applicant.checklist_statuses).joinedload(ApplicantDocumentStatus.document_type),
+            joinedload(Applicant.checklist_statuses).joinedload(ApplicantDocumentStatus.document_requirement),
+        )
+        .where(Applicant.id == applicant_id)
+    )
+    if not app:
+        raise HTTPException(status_code=404, detail="Applicant not found.")
+
+    track = payload.track.strip().upper()
+    stage_code = payload.stage_code.strip().upper()
+    tmpl = find_stage_template(track, stage_code)
+    stage_label = (payload.stage_label or (tmpl["label"] if tmpl else stage_code.replace("_", " ").title())).strip()
+
+    raw_subject = payload.subject or (tmpl["default_subject"] if tmpl else f"Application Update: {stage_label} — {{application_reference}}")
+    raw_message = payload.message_body or (
+        tmpl["default_message"]
+        if tmpl
+        else "Hello {applicant_name},\n\nYour application ({application_reference}) has reached milestone: {stage_label}."
+    )
+
+    subject = render_stage_message_text(template=raw_subject, applicant=app, stage_label=stage_label)
+    message_text = render_stage_message_text(template=raw_message, applicant=app, stage_label=stage_label)
+
+    missing_items: list[str] = []
+    if payload.include_missing_checklist:
+        missing_items = [
+            f"{row.document_type.name} ({row.status})"
+            for row in sorted(app.checklist_statuses, key=lambda r: r.document_requirement.display_order)
+            if row.status in {"MISSING", "UNREADABLE", "POTENTIALLY_INVALID"}
+        ]
+
+    full_name = " ".join(p for p in [app.first_name, app.middle_name, app.last_name] if p)
+    officer_name = f"{current_user.first_name} {current_user.last_name}".strip()
+    html_body, plain_body = build_stage_email_bodies(
+        applicant_name=full_name,
+        application_reference=app.application_reference,
+        destination=app.destination.name if app.destination else "",
+        category=app.category.name if app.category else "",
+        stage_label=stage_label,
+        message_body=message_text,
+        missing_items=missing_items,
+        officer_name=officer_name,
+        officer_email=current_user.email,
+    )
+
+    delivery_status, delivery_provider, delivery_detail = dispatch_client_email(
+        db,
+        to_email=app.email,
+        subject=subject,
+        html_body=html_body,
+        text_body=plain_body,
+    )
+
+    update_row = ClientStageUpdate(
+        applicant_id=app.id,
+        track=track,
+        stage_code=stage_code,
+        stage_label=stage_label,
+        subject=subject,
+        message_body=plain_body,
+        recipient_email=app.email,
+        delivery_status=delivery_status,
+        delivery_provider=delivery_provider,
+        delivery_detail=delivery_detail,
+        sent_by_id=current_user.id,
+        sent_by_name=officer_name,
+    )
+    db.add(update_row)
+
+    new_ctx = dict(app.eligibility_context or {})
+    new_ctx["current_stage_code"] = stage_code
+    new_ctx["current_stage_label"] = stage_label
+    app.eligibility_context = new_ctx
+    if payload.update_applicant_status and tmpl and tmpl.get("applicant_status"):
+        app.status = tmpl["applicant_status"]
+
+    record_audit_event(
+        db,
+        action="CLIENT_STAGE_NOTIFICATION_SENT",
+        entity_type="applicant",
+        entity_id=app.id,
+        actor=current_user,
+        metadata={
+            "track": track,
+            "stage_code": stage_code,
+            "recipient_email": app.email,
+            "delivery_status": delivery_status,
+            "delivery_provider": delivery_provider,
+        },
+        request=request,
+    )
+    db.commit()
+    db.refresh(update_row)
+    return StageUpdateRead.model_validate(update_row)
 
 
 @router.patch("/applicants/{applicant_id}", response_model=ApplicantDetail)

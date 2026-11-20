@@ -1,25 +1,28 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowLeft,
+  BellRing,
   Check,
   CheckCheck,
   Download,
   Eye,
   FileText,
   FolderArchive,
+  Mail,
   RefreshCw,
+  Send,
   UploadCloud,
   XCircle,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { API_BASE_URL, downloadAuthorizedFile, getStoredTokens, ldiApi } from "@/lib/api-client";
-import { formatBytes, statusColorClasses } from "@/lib/utils";
+import { formatBytes, formatDateTime, statusColorClasses } from "@/lib/utils";
 import type { DocumentRecord } from "@/types";
 
 export default function ApplicantDetailPage() {
@@ -29,6 +32,12 @@ export default function ApplicantDetailPage() {
 
   const [previewDoc, setPreviewDoc] = useState<DocumentRecord | null>(null);
   const [statusBanner, setStatusBanner] = useState<string | null>(null);
+  const [track, setTrack] = useState<string>("DOCUMENT_REMINDER");
+  const [stageCode, setStageCode] = useState<string>("MISSING_DOCUMENTS_REMINDER");
+  const [emailSubject, setEmailSubject] = useState<string>("");
+  const [emailBody, setEmailBody] = useState<string>("");
+  const [includeMissing, setIncludeMissing] = useState<boolean>(true);
+  const [updateStatusFlag, setUpdateStatusFlag] = useState<boolean>(true);
 
   const { data: applicant, isLoading } = useQuery({
     queryKey: ["applicant", applicantId],
@@ -39,9 +48,53 @@ export default function ApplicantDetailPage() {
         : false,
   });
 
+  const { data: stageCatalog } = useQuery({
+    queryKey: ["stage-catalog"],
+    queryFn: ldiApi.getStageCatalog,
+  });
+
   const { data: docTypes = [] } = useQuery({
     queryKey: ["document-types"],
     queryFn: ldiApi.listDocumentTypes,
+  });
+
+  useEffect(() => {
+    if (!stageCatalog || !applicant) return;
+    const options = stageCatalog[track] || [];
+    const activeOpt = options.find((o) => o.code === stageCode) || options[0];
+    if (!activeOpt) return;
+    if (activeOpt.code !== stageCode) setStageCode(activeOpt.code);
+    const fillVars = (raw: string) =>
+      raw
+        .replaceAll("{applicant_name}", applicant.full_name)
+        .replaceAll("{application_reference}", applicant.application_reference)
+        .replaceAll("{destination}", applicant.destination.name)
+        .replaceAll("{purpose}", applicant.purpose.name)
+        .replaceAll("{category}", applicant.category.name)
+        .replaceAll("{stage_label}", activeOpt.label);
+    setEmailSubject(fillVars(activeOpt.default_subject));
+    setEmailBody(fillVars(activeOpt.default_message));
+    setIncludeMissing(
+      track === "DOCUMENT_REMINDER" && activeOpt.code === "MISSING_DOCUMENTS_REMINDER"
+    );
+  }, [stageCatalog, track, stageCode, applicant]);
+
+  const sendStageMutation = useMutation({
+    mutationFn: () =>
+      ldiApi.sendStageUpdate(applicantId, {
+        track,
+        stage_code: stageCode,
+        subject: emailSubject || undefined,
+        message_body: emailBody || undefined,
+        include_missing_checklist: includeMissing,
+        update_applicant_status: updateStatusFlag,
+      }),
+    onSuccess: (res) => {
+      setStatusBanner(
+        `Client notified at ${res.recipient_email} (${res.stage_label} · ${res.delivery_status}).`
+      );
+      refreshAll();
+    },
   });
 
   const refreshAll = () => {
@@ -184,6 +237,170 @@ export default function ApplicantDetailPage() {
               >
                 {applicant.status}
               </span>
+            </div>
+          </div>
+
+          {/* Client Stage Updates & Real-Time Email Reminders */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <BellRing className="h-4 w-4 text-brand" />
+                <div>
+                  <h2 className="text-sm font-semibold text-navy">
+                    Client Stage Progression &amp; Real-Time Email Reminders
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Update admission, visa processing, or document milestones and notify{" "}
+                    <span className="font-medium text-slate-700">{applicant.email}</span> immediately.
+                  </p>
+                </div>
+              </div>
+              {applicant.current_stage_label && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800">
+                  Current Milestone: {applicant.current_stage_label}
+                </span>
+              )}
+            </div>
+
+            <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Notification Track
+                    </label>
+                    <select
+                      value={track}
+                      onChange={(e) => {
+                        const nextTrack = e.target.value;
+                        setTrack(nextTrack);
+                        const firstOpt = stageCatalog?.[nextTrack]?.[0];
+                        if (firstOpt) setStageCode(firstOpt.code);
+                      }}
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
+                    >
+                      <option value="DOCUMENT_REMINDER">Full Package &amp; Document Reminders</option>
+                      <option value="ADMISSION">Admission Approval Milestones</option>
+                      <option value="VISA_PROCESSING">Visa Processing Milestones</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Stage Milestone
+                    </label>
+                    <select
+                      value={stageCode}
+                      onChange={(e) => setStageCode(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
+                    >
+                      {(stageCatalog?.[track] || []).map((opt) => (
+                        <option key={opt.code} value={opt.code}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Email Subject
+                  </label>
+                  <input
+                    value={emailSubject}
+                    onChange={(e) => setEmailSubject(e.target.value)}
+                    placeholder="Subject line sent to client..."
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Message to Client
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={emailBody}
+                    onChange={(e) => setEmailBody(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-4 text-xs text-slate-700">
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeMissing}
+                      onChange={(e) => setIncludeMissing(e.target.checked)}
+                    />
+                    Include outstanding missing checklist documents
+                  </label>
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={updateStatusFlag}
+                      onChange={(e) => setUpdateStatusFlag(e.target.checked)}
+                    />
+                    Update applicant status automatically
+                  </label>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => sendStageMutation.mutate()}
+                  disabled={sendStageMutation.isPending || !emailSubject.trim()}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-xs font-medium hover:bg-brand-light disabled:opacity-50"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  {sendStageMutation.isPending
+                    ? "Sending Update..."
+                    : "Update Stage & Send Email Reminder"}
+                </button>
+              </div>
+
+              <div className="border-t lg:border-t-0 lg:border-l border-slate-200 pt-4 lg:pt-0 lg:pl-6">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
+                  <Mail className="h-3.5 w-3.5" />
+                  Client Notification &amp; Reminder History ({applicant.stage_updates?.length || 0})
+                </h3>
+                {!applicant.stage_updates || applicant.stage_updates.length === 0 ? (
+                  <div className="rounded-lg bg-slate-50 border border-slate-200 p-4 text-xs text-slate-500">
+                    No client email reminders have been dispatched yet. Select a stage on the left to notify the applicant in real time.
+                  </div>
+                ) : (
+                  <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                    {applicant.stage_updates.map((upd) => (
+                      <div
+                        key={upd.id}
+                        className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-xs space-y-1"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-navy">{upd.stage_label}</span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${
+                              upd.delivery_status.startsWith("SENT")
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : upd.delivery_status === "FAILED"
+                                ? "bg-red-50 text-red-700 border-red-200"
+                                : "bg-amber-50 text-amber-700 border-amber-200"
+                            }`}
+                          >
+                            {upd.delivery_status} ({upd.delivery_provider})
+                          </span>
+                        </div>
+                        <div className="text-slate-700 font-medium truncate">{upd.subject}</div>
+                        <div className="text-[11px] text-slate-500">
+                          To {upd.recipient_email} · By {upd.sent_by_name || "Officer"} ·{" "}
+                          {formatDateTime(upd.created_at)}
+                        </div>
+                        {upd.delivery_detail && (
+                          <div className="text-[11px] text-slate-500 italic">{upd.delivery_detail}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

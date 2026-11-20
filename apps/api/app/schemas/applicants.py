@@ -151,10 +151,40 @@ class ChecklistStatusItem(BaseModel):
     quality_issues: list[str] = Field(default_factory=list)
 
 
+class StageUpdateCreate(BaseModel):
+    track: str = Field(min_length=2, max_length=40)
+    stage_code: str = Field(min_length=2, max_length=60)
+    stage_label: str | None = Field(default=None, max_length=150)
+    subject: str | None = Field(default=None, max_length=255)
+    message_body: str | None = None
+    include_missing_checklist: bool = True
+    update_applicant_status: bool = True
+
+
+class StageUpdateRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    applicant_id: str
+    track: str
+    stage_code: str
+    stage_label: str
+    subject: str
+    message_body: str
+    recipient_email: str
+    delivery_status: str
+    delivery_provider: str
+    delivery_detail: str | None = None
+    sent_by_name: str | None = None
+    created_at: datetime
+
+
 class ApplicantDetail(ApplicantSummary):
     passport_number_masked: str | None = None
+    current_stage_code: str | None = None
+    current_stage_label: str | None = None
     eligibility_context: dict[str, Any] = Field(default_factory=dict)
     checklist: list[ChecklistStatusItem] = Field(default_factory=list)
     documents: list[dict[str, Any]] = Field(default_factory=list)
     batches: list[dict[str, Any]] = Field(default_factory=list)
     exports: list[dict[str, Any]] = Field(default_factory=list)
+    stage_updates: list[StageUpdateRead] = Field(default_factory=list)
