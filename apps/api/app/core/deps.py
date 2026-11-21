@@ -14,12 +14,19 @@ from app.models.entities import Role, User
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
+ROLE_CEO = "CEO"
 ROLE_SUPER_ADMIN = "SUPER_ADMIN"
 ROLE_ADMIN = "ADMIN"
 ROLE_OFFICER = "OFFICER"
 ROLE_VIEWER = "VIEWER"
 
-ALL_ROLES = [ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER]
+PRIVILEGED_ADMIN_ROLES = {ROLE_SUPER_ADMIN, ROLE_CEO}
+ALL_ROLES = [ROLE_CEO, ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER]
+
+
+def is_super_privileged(user: User | None) -> bool:
+    """Return True when the user holds Super Admin or CEO full platform privileges."""
+    return bool(user and user.role and user.role.name in PRIVILEGED_ADMIN_ROLES)
 
 
 def get_current_user(
@@ -78,7 +85,7 @@ def require_roles(*allowed_roles: str) -> Callable[[User], User]:
 
     def _dependency(current_user: User = Depends(get_current_user)) -> User:
         role_name = current_user.role.name if current_user.role else ""
-        if role_name == ROLE_SUPER_ADMIN:
+        if role_name in PRIVILEGED_ADMIN_ROLES:
             return current_user
         if role_name not in allowed_roles:
             raise HTTPException(
@@ -91,10 +98,10 @@ def require_roles(*allowed_roles: str) -> Callable[[User], User]:
 
 
 def require_permission(permission_code: str) -> Callable[[User], User]:
-    """Enforce fine-grained permission checking with SUPER_ADMIN bypass."""
+    """Enforce fine-grained permission checking with SUPER_ADMIN/CEO bypass."""
 
     def _dependency(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role and current_user.role.name == ROLE_SUPER_ADMIN:
+        if is_super_privileged(current_user):
             return current_user
         user_perms = {
             p.code for p in (current_user.role.permissions if current_user.role else [])
@@ -110,9 +117,8 @@ def require_permission(permission_code: str) -> Callable[[User], User]:
 
 
 def ensure_applicant_access(applicant, current_user: User) -> None:
-    """Restrict client records to the assigned officer and Super Administrator."""
-    role_name = current_user.role.name if current_user.role else ""
-    if role_name == ROLE_SUPER_ADMIN:
+    """Restrict client records to the assigned officer, Super Administrator, and CEO."""
+    if is_super_privileged(current_user):
         return
     if getattr(applicant, "assigned_officer_id", None) != current_user.id:
         raise HTTPException(

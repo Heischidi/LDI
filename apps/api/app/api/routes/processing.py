@@ -5,7 +5,15 @@ from sqlalchemy import delete, desc, select, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
-from app.core.deps import ROLE_ADMIN, ROLE_OFFICER, ROLE_SUPER_ADMIN, ROLE_VIEWER, ensure_applicant_access, require_roles
+from app.core.deps import (
+    ROLE_ADMIN,
+    ROLE_OFFICER,
+    ROLE_SUPER_ADMIN,
+    ROLE_VIEWER,
+    ensure_applicant_access,
+    is_super_privileged,
+    require_roles,
+)
 from app.models.entities import (
     Applicant,
     ApplicantDocumentStatus,
@@ -80,7 +88,7 @@ def list_batches(
         .order_by(desc(UploadBatch.created_at))
         .limit(limit)
     )
-    if current_user.role.name != ROLE_SUPER_ADMIN:
+    if not is_super_privileged(current_user):
         stmt = stmt.where(Applicant.assigned_officer_id == current_user.id)
     if applicant_id:
         stmt = stmt.where(UploadBatch.applicant_id == applicant_id)

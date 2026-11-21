@@ -55,7 +55,7 @@ class UserCreateRequest(BaseModel):
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
     phone_number: str | None = None
-    role_name: str = Field(default="OFFICER", pattern="^(SUPER_ADMIN|ADMIN|OFFICER|VIEWER)$")
+    role_name: str = Field(default="OFFICER", pattern="^(CEO|SUPER_ADMIN|ADMIN|OFFICER|VIEWER)$")
     is_active: bool = True
 
 
@@ -63,6 +63,6 @@ class UserUpdateRequest(BaseModel):
     first_name: str | None = Field(default=None, min_length=1, max_length=100)
     last_name: str | None = Field(default=None, min_length=1, max_length=100)
     phone_number: str | None = None
-    role_name: str | None = Field(default=None, pattern="^(SUPER_ADMIN|ADMIN|OFFICER|VIEWER)$")
+    role_name: str | None = Field(default=None, pattern="^(CEO|SUPER_ADMIN|ADMIN|OFFICER|VIEWER)$")
     is_active: bool | None = None
     password: str | None = Field(default=None, min_length=4, max_length=128)

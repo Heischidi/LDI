@@ -38,6 +38,11 @@ DEFAULT_PERMISSIONS = [
 ]
 
 ROLE_DEFINITIONS = {
+    "CEO": (
+        "Chief Executive Officer (CEO)",
+        "Complete executive and Super Admin platform access plus twice-daily personal email reminders.",
+        [p[0] for p in DEFAULT_PERMISSIONS],
+    ),
     "SUPER_ADMIN": (
         "Super Administrator",
         "Complete platform access across staff, requirements, AI providers, applicants, and audit logs.",

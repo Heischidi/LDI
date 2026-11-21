@@ -1,7 +1,7 @@
 """Staff user management endpoints with strict RBAC."""
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.routes.auth import _to_user_summary
@@ -14,6 +14,7 @@ from app.models.entities import (
     ClientStageUpdate,
     DocumentReview,
     ExportPackage,
+    PersonalReminder,
     RequirementVersion,
     Role,
     SystemSetting,
@@ -209,6 +210,7 @@ def _unlink_user_references(db: Session, user_ids: list[str]) -> None:
         .where(SystemSetting.updated_by_id.in_(user_ids))
         .values(updated_by_id=None)
     )
+    db.execute(delete(PersonalReminder).where(PersonalReminder.user_id.in_(user_ids)))
     db.flush()
 
 

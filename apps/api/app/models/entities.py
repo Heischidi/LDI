@@ -712,3 +712,36 @@ class ClientStageUpdate(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False, index=True)
 
     applicant: Mapped["Applicant"] = relationship("Applicant", back_populates="stage_updates")
+
+
+class PersonalReminder(Base):
+    __tablename__ = "personal_reminders"
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=_uuid_str)
+    user_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recipient_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    times_per_day: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    morning_time: Mapped[str] = mapped_column(String(10), default="09:00", nullable=False)
+    evening_time: Mapped[str] = mapped_column(String(10), default="17:00", nullable=False)
+    is_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    send_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_send_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    last_delivery_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    last_delivery_provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    last_delivery_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    user: Mapped["User"] = relationship("User")

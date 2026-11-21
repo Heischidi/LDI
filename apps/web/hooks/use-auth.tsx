@@ -67,7 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const hasRole = (...roles: string[]) => {
     if (!user) return false;
-    if (user.role === "SUPER_ADMIN") return true;
+    if (user.role === "SUPER_ADMIN" || user.role === "CEO") return true;
     return roles.includes(user.role);
   };
 

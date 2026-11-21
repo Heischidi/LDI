@@ -7,7 +7,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
-from app.core.deps import ROLE_ADMIN, ROLE_OFFICER, ROLE_SUPER_ADMIN, ROLE_VIEWER, require_roles
+from app.core.deps import ROLE_ADMIN, ROLE_OFFICER, ROLE_SUPER_ADMIN, ROLE_VIEWER, is_super_privileged, require_roles
 from app.models.entities import (
     Applicant,
     ApplicantDocumentStatus,
@@ -31,7 +31,7 @@ def get_dashboard_metrics(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER)),
 ) -> DashboardMetrics:
-    is_super_admin = bool(current_user.role and current_user.role.name == ROLE_SUPER_ADMIN)
+    is_super_admin = is_super_privileged(current_user)
 
     def _scope_app(stmt):
         return stmt if is_super_admin else stmt.where(Applicant.assigned_officer_id == current_user.id)

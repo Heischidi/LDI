@@ -230,3 +230,114 @@ def test_officer_username_creation_login_and_client_isolation(client: TestClient
     assert list_super.status_code == 200
     assert list_super.json()["total"] >= 1
     assert client.get(f"/api/applicants/{applicant_id}", headers=super_by_username).status_code == 200
+
+
+def test_ceo_role_privileges_and_twice_daily_personal_reminders(client: TestClient):
+    super_hdrs = auth_headers(client, "superadmin", "LeadersAdmin!2026")
+    officer_hdrs = auth_headers(client, "officer@leaders.edu", "LeadersOfficer!2026")
+
+    # 1. Create an executive account with CEO role & personal email
+    ceo_resp = client.post(
+        "/api/users",
+        json={
+            "first_name": "Chidi",
+            "last_name": "Boss",
+            "email": "ceo.personal@example.com",
+            "password": "CeoPassword1",
+            "role_name": "CEO",
+        },
+        headers=super_hdrs,
+    )
+    assert ceo_resp.status_code == 201, ceo_resp.text
+    assert ceo_resp.json()["role"] == "CEO"
+    assert ceo_resp.json()["username"] == "bossch"
+
+    ceo_hdrs = auth_headers(client, "bossch", "CeoPassword1")
+    me_ceo = client.get("/api/auth/me", headers=ceo_hdrs)
+    assert me_ceo.status_code == 200
+    assert me_ceo.json()["role"] == "CEO"
+
+    # 2. Verify CEO holds all Super Admin privileges (staff, settings, and viewing all officers' clients)
+    assert client.get("/api/users", headers=ceo_hdrs).status_code == 200
+    assert (
+        client.patch(
+            "/api/settings/ai.provider",
+            json={"value_json": {"provider": "LOCAL_DETERMINISTIC", "allow_external_ai": False}},
+            headers=ceo_hdrs,
+        ).status_code
+        == 200
+    )
+
+    dests = {d["code"]: d for d in client.get("/api/reference/destinations", headers=officer_hdrs).json()}
+    purps = {p["code"]: p for p in client.get("/api/reference/purposes", headers=officer_hdrs).json()}
+    cats = {c["code"]: c for c in client.get("/api/reference/categories", headers=officer_hdrs).json()}
+    app_resp = client.post(
+        "/api/applicants",
+        json={
+            "first_name": "Executive",
+            "last_name": "Visibility",
+            "email": "exec.vis@example.com",
+            "phone_number": "+2348011223344",
+            "nationality": "Nigerian",
+            "destination_id": dests["CA"]["id"],
+            "purpose_id": purps["STUDY"]["id"],
+            "category_id": cats["STUDENT_VISA"]["id"],
+        },
+        headers=officer_hdrs,
+    )
+    assert app_resp.status_code == 201
+    app_id = app_resp.json()["id"]
+    assert client.get(f"/api/applicants/{app_id}", headers=ceo_hdrs).status_code == 200
+
+    # 3. Create twice-daily personal reminders on CEO's personal account & email
+    rem1_resp = client.post(
+        "/api/reminders",
+        json={
+            "title": "Sign UK Sponsor Letter",
+            "notes": "Send signed scan before visa submission",
+            "morning_time": "09:00",
+            "evening_time": "17:00",
+            "send_immediately": True,
+        },
+        headers=ceo_hdrs,
+    )
+    assert rem1_resp.status_code == 201, rem1_resp.text
+    rem1 = rem1_resp.json()
+    assert rem1["recipient_email"] == "ceo.personal@example.com"
+    assert rem1["times_per_day"] == 2
+    assert rem1["send_count"] == 1
+    assert rem1["is_completed"] is False
+    assert rem1["next_send_at"] is not None
+
+    # Second manual reminder push increments send_count and keeps schedule active
+    send_now = client.post(f"/api/reminders/{rem1['id']}/send-now", headers=ceo_hdrs)
+    assert send_now.status_code == 200
+    assert send_now.json()["send_count"] == 2
+
+    # Marking done stops twice-daily schedule
+    done_resp = client.patch(
+        f"/api/reminders/{rem1['id']}",
+        json={"is_completed": True},
+        headers=ceo_hdrs,
+    )
+    assert done_resp.status_code == 200
+    assert done_resp.json()["is_completed"] is True
+    assert done_resp.json()["next_send_at"] is None
+    assert client.post(f"/api/reminders/{rem1['id']}/send-now", headers=ceo_hdrs).status_code == 400
+
+    # Create a second reminder & test single + batch deletion
+    rem2_resp = client.post(
+        "/api/reminders",
+        json={
+            "title": "Review Canada Applications",
+            "recipient_email": "ceo.alt@example.com",
+            "send_immediately": False,
+        },
+        headers=ceo_hdrs,
+    )
+    assert rem2_resp.status_code == 201
+    rem2_id = rem2_resp.json()["id"]
+    assert client.delete(f"/api/reminders/{rem1['id']}", headers=ceo_hdrs).status_code == 200
+    bdel = client.post("/api/reminders/batch-delete", json={"ids": [rem2_id]}, headers=ceo_hdrs)
+    assert bdel.status_code == 200
+    assert bdel.json()["deleted_count"] == 1

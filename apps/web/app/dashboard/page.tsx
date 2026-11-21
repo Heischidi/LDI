@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  BellRing,
   CheckCircle2,
   Clock,
   FileCheck2,
@@ -58,15 +59,47 @@ function HorizontalBarChart({
 }
 
 export default function DashboardPage() {
-  const { hasRole } = useAuth();
+  const { hasRole, user } = useAuth();
   const qc = useQueryClient();
   const canDelete = hasRole("SUPER_ADMIN", "ADMIN", "OFFICER");
+  const isExecutive = hasRole("CEO", "SUPER_ADMIN");
   const [selectedAppIds, setSelectedAppIds] = useState<string[]>([]);
+  const [quickReminderTitle, setQuickReminderTitle] = useState("");
+  const [quickReminderEmail, setQuickReminderEmail] = useState("");
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["dashboard-metrics"],
     queryFn: ldiApi.getDashboardMetrics,
     refetchInterval: 15_000,
+  });
+
+  const { data: myReminders = [] } = useQuery({
+    queryKey: ["personal-reminders"],
+    queryFn: ldiApi.listReminders,
+    enabled: isExecutive,
+  });
+
+  const quickReminderMutation = useMutation({
+    mutationFn: () =>
+      ldiApi.createReminder({
+        title: quickReminderTitle.trim(),
+        recipient_email: quickReminderEmail.trim() || user?.email,
+        send_immediately: true,
+      }),
+    onSuccess: () => {
+      setQuickReminderTitle("");
+      qc.invalidateQueries({ queryKey: ["personal-reminders"] });
+    },
+  });
+
+  const markReminderDoneMutation = useMutation({
+    mutationFn: (id: string) => ldiApi.updateReminder(id, { is_completed: true }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["personal-reminders"] }),
+  });
+
+  const deleteReminderMutation = useMutation({
+    mutationFn: ldiApi.deleteReminder,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["personal-reminders"] }),
   });
 
   const deleteAppMutation = useMutation({
@@ -249,6 +282,84 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
+
+          {/* CEO & Executive Twice-Daily Personal Email Reminders */}
+          {isExecutive && (
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <BellRing className="h-4 w-4 text-brand" />
+                  <h3 className="text-sm font-semibold text-navy">
+                    CEO &amp; Executive Personal Email Reminders (Twice Daily Until Done)
+                  </h3>
+                </div>
+                <Link href="/reminders" className="text-xs font-medium text-brand hover:underline">
+                  Manage Schedule &amp; All Reminders
+                </Link>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-2.5">
+                <input
+                  value={quickReminderTitle}
+                  onChange={(e) => setQuickReminderTitle(e.target.value)}
+                  placeholder="Task to be reminded about twice daily..."
+                  className="md:col-span-3 px-3 py-2 text-xs rounded-lg border border-slate-300"
+                />
+                <input
+                  type="email"
+                  value={quickReminderEmail}
+                  onChange={(e) => setQuickReminderEmail(e.target.value)}
+                  placeholder={user?.email || "Personal email (optional)"}
+                  className="md:col-span-2 px-3 py-2 text-xs rounded-lg border border-slate-300"
+                />
+                <button
+                  type="button"
+                  onClick={() => quickReminderMutation.mutate()}
+                  disabled={!quickReminderTitle.trim() || quickReminderMutation.isPending}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-brand text-white text-xs font-medium hover:bg-brand-light disabled:opacity-50"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  {quickReminderMutation.isPending ? "Saving..." : "Set Reminder"}
+                </button>
+              </div>
+              {myReminders.filter((r) => !r.is_completed).length > 0 && (
+                <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg">
+                  {myReminders
+                    .filter((r) => !r.is_completed)
+                    .slice(0, 4)
+                    .map((rem) => (
+                      <div
+                        key={rem.id}
+                        className="px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-semibold text-navy">{rem.title}</span>
+                          <span className="text-slate-500 ml-2">
+                            ({rem.recipient_email} · Sent {rem.send_count}x)
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => markReminderDoneMutation.mutate(rem.id)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-[11px] font-medium"
+                          >
+                            <CheckCircle2 className="h-3 w-3" /> Mark Done
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteReminderMutation.mutate(rem.id)}
+                            title="Delete Reminder"
+                            className="p-1 rounded border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Recent Applicants & Recent Activity */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

@@ -364,6 +364,37 @@ export const ldiApi = {
       { method: "POST", body: JSON.stringify({ ids }) }
     ),
 
+  listReminders: () =>
+    apiRequest<import("@/types").PersonalReminderItem[]>("/api/reminders"),
+  createReminder: (payload: {
+    title: string;
+    notes?: string;
+    recipient_email?: string;
+    morning_time?: string;
+    evening_time?: string;
+    send_immediately?: boolean;
+  }) =>
+    apiRequest<import("@/types").PersonalReminderItem>("/api/reminders", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateReminder: (id: string, payload: Record<string, unknown>) =>
+    apiRequest<import("@/types").PersonalReminderItem>(`/api/reminders/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  sendReminderNow: (id: string) =>
+    apiRequest<import("@/types").PersonalReminderItem>(`/api/reminders/${id}/send-now`, {
+      method: "POST",
+    }),
+  deleteReminder: (id: string) =>
+    apiRequest<{ message: string }>(`/api/reminders/${id}`, { method: "DELETE" }),
+  batchDeleteReminders: (ids: string[]) =>
+    apiRequest<{ message: string; deleted_count: number; deleted_ids: string[] }>(
+      "/api/reminders/batch-delete",
+      { method: "POST", body: JSON.stringify({ ids }) }
+    ),
+
   listAuditLogs: (query = "") =>
     apiRequest<{
       items: Array<{

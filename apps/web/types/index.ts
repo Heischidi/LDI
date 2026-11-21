@@ -1,4 +1,4 @@
-export type UserRole = "SUPER_ADMIN" | "ADMIN" | "OFFICER" | "VIEWER";
+export type UserRole = "CEO" | "SUPER_ADMIN" | "ADMIN" | "OFFICER" | "VIEWER";
 
 export interface UserSummary {
   id: string;
@@ -279,4 +279,25 @@ export interface DashboardMetrics {
     email: string;
     assigned_applicants: number;
   }>;
+}
+
+export interface PersonalReminderItem {
+  id: string;
+  user_id: string;
+  title: string;
+  notes?: string | null;
+  recipient_email: string;
+  times_per_day: number;
+  morning_time: string;
+  evening_time: string;
+  is_completed: boolean;
+  completed_at?: string | null;
+  send_count: number;
+  last_sent_at?: string | null;
+  next_send_at?: string | null;
+  last_delivery_status?: string | null;
+  last_delivery_provider?: string | null;
+  last_delivery_detail?: string | null;
+  created_at: string;
+  updated_at: string;
 }

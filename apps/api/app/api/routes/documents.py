@@ -15,6 +15,7 @@ from app.core.deps import (
     ROLE_SUPER_ADMIN,
     ROLE_VIEWER,
     ensure_applicant_access,
+    is_super_privileged,
     require_roles,
 )
 from app.document_processing.mime_validator import UploadValidationError, validate_and_unpack_upload
@@ -251,7 +252,7 @@ def list_processed_documents(
     )
     if applicant_id:
         stmt = stmt.where(UploadedDocument.applicant_id == applicant_id)
-    if not (current_user.role and current_user.role.name == ROLE_SUPER_ADMIN):
+    if not is_super_privileged(current_user):
         stmt = stmt.where(Applicant.assigned_officer_id == current_user.id)
 
     docs = db.scalars(stmt).unique().all()

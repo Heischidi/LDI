@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
+  BellRing,
   ClipboardCheck,
   FileCheck2,
   FolderCog,
@@ -21,14 +22,15 @@ import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
-  { href: "/applicants", label: "Applicants", icon: Users, roles: ["SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
-  { href: "/processing", label: "Document Processing", icon: UploadCloud, roles: ["SUPER_ADMIN", "ADMIN", "OFFICER"] },
-  { href: "/requirements", label: "Requirements Manager", icon: ClipboardCheck, roles: ["SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
-  { href: "/processed-documents", label: "Processed Documents", icon: FileCheck2, roles: ["SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
-  { href: "/reports", label: "Reports", icon: BarChart3, roles: ["SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
-  { href: "/staff", label: "Staff Management", icon: ShieldCheck, roles: ["SUPER_ADMIN", "ADMIN"] },
-  { href: "/settings", label: "Settings", icon: Settings, roles: ["SUPER_ADMIN"] },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
+  { href: "/applicants", label: "Applicants", icon: Users, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
+  { href: "/processing", label: "Document Processing", icon: UploadCloud, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER"] },
+  { href: "/requirements", label: "Requirements Manager", icon: ClipboardCheck, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
+  { href: "/processed-documents", label: "Processed Documents", icon: FileCheck2, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
+  { href: "/reports", label: "Reports", icon: BarChart3, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
+  { href: "/reminders", label: "CEO Reminders", icon: BellRing, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER"] },
+  { href: "/staff", label: "Staff Management", icon: ShieldCheck, roles: ["CEO", "SUPER_ADMIN", "ADMIN"] },
+  { href: "/settings", label: "Settings", icon: Settings, roles: ["CEO", "SUPER_ADMIN"] },
 ];
 
 export function AppShell({
@@ -65,7 +67,7 @@ export function AppShell({
   }
 
   const visibleNav = NAV_ITEMS.filter(
-    (item) => user.role === "SUPER_ADMIN" || item.roles.includes(user.role)
+    (item) => user.role === "SUPER_ADMIN" || user.role === "CEO" || item.roles.includes(user.role)
   );
 
   return (

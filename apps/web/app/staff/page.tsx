@@ -189,6 +189,7 @@ export default function StaffManagementPage() {
                 <option value="OFFICER">Document Processing Officer</option>
                 <option value="ADMIN">Administrator</option>
                 <option value="VIEWER">Viewer / Supervisor</option>
+                <option value="CEO">CEO (Chief Executive Officer)</option>
                 <option value="SUPER_ADMIN">Super Administrator</option>
               </select>
               <button
@@ -301,6 +302,7 @@ export default function StaffManagementPage() {
                             <option value="OFFICER">Document Processing Officer</option>
                             <option value="ADMIN">Administrator</option>
                             <option value="VIEWER">Viewer / Supervisor</option>
+                            <option value="CEO">CEO (Chief Executive Officer)</option>
                             <option value="SUPER_ADMIN">Super Administrator</option>
                           </select>
                         ) : (

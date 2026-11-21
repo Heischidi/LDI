@@ -1,5 +1,6 @@
 """Main FastAPI application for Leaders Document Intelligence (LDI)."""
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -16,14 +17,32 @@ from app.api.routes import (
     documents,
     exports,
     processing,
+    reminders,
     reports,
     requirements,
     settings as settings_route,
     users,
 )
+from app.api.routes.reminders import process_due_personal_reminders
 from app.core.config import settings
 from app.core.database import Base, SessionLocal, engine
 from app.services.seed_service import seed_initial_data
+
+
+async def _reminder_scheduler_loop() -> None:
+    """Periodically dispatch due twice-daily personal/CEO email reminders."""
+    while True:
+        try:
+            await asyncio.sleep(60)
+            db = SessionLocal()
+            try:
+                process_due_personal_reminders(db)
+            finally:
+                db.close()
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            pass
 
 
 @asynccontextmanager
@@ -33,9 +52,18 @@ async def lifespan(_app: FastAPI):
     db = SessionLocal()
     try:
         seed_initial_data(db)
+        process_due_personal_reminders(db)
     finally:
         db.close()
-    yield
+    reminder_task = asyncio.create_task(_reminder_scheduler_loop())
+    try:
+        yield
+    finally:
+        reminder_task.cancel()
+        try:
+            await reminder_task
+        except asyncio.CancelledError:
+            pass
 
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
@@ -79,5 +107,6 @@ app.include_router(processing.router, prefix=prefix)
 app.include_router(exports.router, prefix=prefix)
 app.include_router(reports.router, prefix=prefix)
 app.include_router(users.router, prefix=prefix)
+app.include_router(reminders.router, prefix=prefix)
 app.include_router(audit.router, prefix=prefix)
 app.include_router(settings_route.router, prefix=prefix)

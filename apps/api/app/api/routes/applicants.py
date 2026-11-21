@@ -15,6 +15,7 @@ from app.core.deps import (
     ROLE_VIEWER,
     ensure_applicant_access,
     get_current_user,
+    is_super_privileged,
     require_roles,
 )
 from app.core.security import decrypt_sensitive_value, encrypt_sensitive_value
@@ -285,7 +286,7 @@ def list_applicants(
     count_stmt = select(func.count(Applicant.id))
 
     filters = []
-    if not (current_user.role and current_user.role.name == ROLE_SUPER_ADMIN):
+    if not (is_super_privileged(current_user)):
         filters.append(Applicant.assigned_officer_id == current_user.id)
     if not include_archived:
         filters.append(Applicant.is_archived.is_(False))
@@ -307,7 +308,7 @@ def list_applicants(
         filters.append(Applicant.category_id == category_id)
     if status_filter:
         filters.append(Applicant.status == status_filter)
-    if assigned_officer_id and (current_user.role and current_user.role.name == ROLE_SUPER_ADMIN):
+    if assigned_officer_id and (is_super_privileged(current_user)):
         filters.append(Applicant.assigned_officer_id == assigned_officer_id)
 
     for flt in filters:
@@ -358,7 +359,7 @@ def create_applicant(
         else None
     )
 
-    is_super_admin = bool(current_user.role and current_user.role.name == ROLE_SUPER_ADMIN)
+    is_super_admin = bool(is_super_privileged(current_user))
     applicant = Applicant(
         application_reference=_generate_app_reference(db),
         first_name=payload.first_name.strip(),
@@ -728,7 +729,9 @@ def batch_delete_applicants(
         return BatchDeleteResponse(message="No applicants selected.", deleted_count=0, deleted_ids=[])
 
     apps = db.scalars(select(Applicant).where(Applicant.id.in_(payload.ids))).all()
-    is_privileged = bool(current_user.role and current_user.role.name in {ROLE_SUPER_ADMIN, ROLE_ADMIN})
+    is_privileged = is_super_privileged(current_user) or bool(
+        current_user.role and current_user.role.name == ROLE_ADMIN
+    )
     deleted_ids: list[str] = []
     now = datetime.now(timezone.utc)
     for app in apps:
@@ -766,7 +769,10 @@ def archive_applicant(
     app = db.scalar(select(Applicant).where(Applicant.id == applicant_id))
     if not app:
         raise HTTPException(status_code=404, detail="Applicant not found.")
-    if current_user.role and current_user.role.name not in {ROLE_SUPER_ADMIN, ROLE_ADMIN}:
+    if not (
+        is_super_privileged(current_user)
+        or (current_user.role and current_user.role.name == ROLE_ADMIN)
+    ):
         ensure_applicant_access(app, current_user)
 
     app.is_archived = True
