@@ -131,7 +131,7 @@ export function AppShell({
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
               <p className="text-xs font-semibold text-white truncate">
-                {user.first_name} {user.last_name}
+                {`${user.first_name} ${user.last_name}`.trim()}
               </p>
               <p className="text-[11px] text-emerald-300 font-medium">{user.role.replace("_", " ")}</p>
             </div>

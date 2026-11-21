@@ -83,6 +83,20 @@ export default function StaffManagementPage() {
     onError: (err) => setErrorMsg(err instanceof Error ? err.message : "Failed to update password"),
   });
 
+  const updateRoleMutation = useMutation({
+    mutationFn: ({ id, role_name }: { id: string; role_name: string }) =>
+      ldiApi.updateUser(id, { role_name }),
+    onSuccess: (updated) => {
+      setErrorMsg(null);
+      setStatusMsg(
+        `Updated role for ${updated.username || updated.email} to ${updated.role}.`
+      );
+      qc.invalidateQueries({ queryKey: ["staff-users"] });
+      qc.invalidateQueries({ queryKey: ["audit-logs"] });
+    },
+    onError: (err) => setErrorMsg(err instanceof Error ? err.message : "Failed to update role"),
+  });
+
   const deleteUserMutation = useMutation({
     mutationFn: ldiApi.deleteUser,
     onSuccess: (res, id) => {
@@ -255,7 +269,7 @@ export default function StaffManagementPage() {
                           <input
                             type="checkbox"
                             disabled={isSelf}
-                            aria-label={`Select ${u.first_name} ${u.last_name}`}
+                            aria-label={`Select ${`${u.first_name} ${u.last_name}`.trim()}`}
                             checked={selectedUserIds.includes(u.id)}
                             onChange={() =>
                               setSelectedUserIds((prev) =>
@@ -267,16 +281,33 @@ export default function StaffManagementPage() {
                         </td>
                       )}
                       <td className="px-4 py-3 font-medium text-slate-900">
-                        {u.first_name} {u.last_name}
+                        {`${u.first_name} ${u.last_name}`.trim()}
                       </td>
                       <td className="px-4 py-3 font-mono font-semibold text-navy">
                         {u.username || "—"}
                       </td>
                       <td className="px-4 py-3 text-slate-600">{u.email}</td>
                       <td className="px-4 py-3">
-                        <span className="px-2 py-0.5 rounded bg-navy-50 text-navy font-medium">
-                          {u.role}
-                        </span>
+                        {isSuperAdmin ? (
+                          <select
+                            aria-label={`Role for ${`${u.first_name} ${u.last_name}`.trim()}`}
+                            value={u.role}
+                            disabled={isSelf || updateRoleMutation.isPending}
+                            onChange={(e) =>
+                              updateRoleMutation.mutate({ id: u.id, role_name: e.target.value })
+                            }
+                            className="px-2 py-1 rounded border border-slate-200 bg-white text-xs font-medium text-navy disabled:bg-navy-50 disabled:text-navy"
+                          >
+                            <option value="OFFICER">Document Processing Officer</option>
+                            <option value="ADMIN">Administrator</option>
+                            <option value="VIEWER">Viewer / Supervisor</option>
+                            <option value="SUPER_ADMIN">Super Administrator</option>
+                          </select>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded bg-navy-50 text-navy font-medium">
+                            {u.role}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span

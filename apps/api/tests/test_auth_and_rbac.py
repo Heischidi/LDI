@@ -210,8 +210,22 @@ def test_officer_username_creation_login_and_client_isolation(client: TestClient
         == 403
     )
 
+    # Super Admin can change staff roles cleanly
+    role_upd = client.patch(
+        f"/api/users/{off2_resp.json()['id']}",
+        json={"role_name": "ADMIN"},
+        headers=super_hdrs,
+    )
+    assert role_upd.status_code == 200
+    assert role_upd.json()["role"] == "ADMIN"
+
     # Super Admin can log in by username and see all officers' clients
-    super_by_username = auth_headers(client, "okaforad", "LeadersAdmin!2026")
+    super_by_username = auth_headers(client, "superadmin", "LeadersAdmin!2026")
+    assert super_by_username
+    me_super = client.get("/api/auth/me", headers=super_by_username)
+    assert me_super.status_code == 200
+    assert me_super.json()["first_name"] == "Superadmin"
+    assert me_super.json()["last_name"] == ""
     list_super = client.get("/api/applicants", headers=super_by_username)
     assert list_super.status_code == 200
     assert list_super.json()["total"] >= 1

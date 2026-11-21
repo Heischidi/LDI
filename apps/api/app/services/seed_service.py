@@ -211,7 +211,7 @@ def seed_initial_data(db: Session) -> None:
 
     # 2. Default Staff Users (for enterprise onboarding & automated verification)
     default_users = [
-        ("superadmin@leaders.edu", "LeadersAdmin!2026", "Adaeze", "Okafor", "SUPER_ADMIN"),
+        ("superadmin@leaders.edu", "LeadersAdmin!2026", "Superadmin", "", "SUPER_ADMIN"),
         ("admin@leaders.edu", "LeadersAdmin!2026", "Chinedu", "Balogun", "ADMIN"),
         ("officer@leaders.edu", "LeadersOfficer!2026", "Tunde", "Adeyemi", "OFFICER"),
         ("viewer@leaders.edu", "LeadersViewer!2026", "Grace", "Mensah", "VIEWER"),
@@ -232,8 +232,17 @@ def seed_initial_data(db: Session) -> None:
                 )
             )
             db.flush()
-        elif not existing.username:
-            existing.username = generate_unique_username(db, existing.first_name, existing.last_name, exclude_user_id=existing.id)
+        else:
+            if email == "superadmin@leaders.edu" and (
+                existing.first_name == "Adaeze" or existing.first_name != "Superadmin" or existing.last_name != ""
+            ):
+                existing.first_name = "Superadmin"
+                existing.last_name = ""
+                existing.username = "superadmin"
+            elif not existing.username:
+                existing.username = generate_unique_username(
+                    db, existing.first_name, existing.last_name, exclude_user_id=existing.id
+                )
     # Backfill usernames on any legacy staff rows
     for staff_user in db.scalars(select(User).where(User.username.is_(None))).all():
         staff_user.username = generate_unique_username(
