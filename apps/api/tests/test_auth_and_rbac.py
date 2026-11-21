@@ -289,7 +289,10 @@ def test_ceo_role_privileges_and_twice_daily_personal_reminders(client: TestClie
     app_id = app_resp.json()["id"]
     assert client.get(f"/api/applicants/{app_id}", headers=ceo_hdrs).status_code == 200
 
-    # 3. Create twice-daily personal reminders on CEO's personal account & email
+    # 3. Exclusive to CEO role (officers and Super Admin get 403), and CEO creates twice-daily reminders
+    assert client.get("/api/reminders", headers=officer_hdrs).status_code == 403
+    assert client.get("/api/reminders", headers=super_hdrs).status_code == 403
+
     rem1_resp = client.post(
         "/api/reminders",
         json={

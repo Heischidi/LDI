@@ -10,6 +10,7 @@ import { formatDateTime } from "@/lib/utils";
 
 export default function RemindersPage() {
   const { user } = useAuth();
+  const isCeo = user?.role === "CEO";
   const qc = useQueryClient();
 
   const [title, setTitle] = useState("");
@@ -31,6 +32,7 @@ export default function RemindersPage() {
   const { data: reminders = [], isLoading } = useQuery({
     queryKey: ["personal-reminders"],
     queryFn: ldiApi.listReminders,
+    enabled: isCeo,
     refetchInterval: 60_000,
   });
 
@@ -108,6 +110,19 @@ export default function RemindersPage() {
 
   const allIds = reminders.map((r) => r.id);
   const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.includes(id));
+
+  if (!isCeo) {
+    return (
+      <AppShell
+        title="CEO & Personal Action Reminders"
+        subtitle="Executive action reminders exclusively available to the CEO account."
+      >
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-600 shadow-sm">
+          Executive Access Only: CEO Reminders are exclusive to the CEO account.
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell

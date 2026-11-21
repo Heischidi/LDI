@@ -62,7 +62,7 @@ export default function DashboardPage() {
   const { hasRole, user } = useAuth();
   const qc = useQueryClient();
   const canDelete = hasRole("SUPER_ADMIN", "ADMIN", "OFFICER");
-  const isExecutive = hasRole("CEO", "SUPER_ADMIN");
+  const isExecutive = user?.role === "CEO";
   const [selectedAppIds, setSelectedAppIds] = useState<string[]>([]);
   const [quickReminderTitle, setQuickReminderTitle] = useState("");
   const [quickReminderEmail, setQuickReminderEmail] = useState("");

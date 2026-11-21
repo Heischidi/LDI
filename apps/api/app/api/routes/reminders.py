@@ -9,13 +9,23 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, is_super_privileged
+from app.core.deps import ROLE_CEO, get_current_user, is_super_privileged
 from app.models.entities import PersonalReminder, User
 from app.schemas.common import BatchDeleteRequest, BatchDeleteResponse, MessageResponse
 from app.services.audit_service import record_audit_event
 from app.services.email_service import dispatch_client_email
 
 router = APIRouter(prefix="/reminders", tags=["Personal & CEO Reminders"])
+
+
+def _require_ceo(current_user: User = Depends(get_current_user)) -> User:
+    """Restrict CEO personal reminders exclusively to accounts with role == CEO."""
+    if not (current_user.role and current_user.role.name == ROLE_CEO):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="CEO Reminders are exclusive to accounts with the CEO role.",
+        )
+    return current_user
 
 
 class PersonalReminderCreate(BaseModel):
@@ -220,7 +230,7 @@ def batch_delete_reminders(
     payload: BatchDeleteRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(_require_ceo),
 ) -> BatchDeleteResponse:
     """Delete multiple personal reminders owned by the caller (or any if CEO/Super Admin)."""
     if not payload.ids:
@@ -254,7 +264,7 @@ def batch_delete_reminders(
 @router.get("", response_model=list[PersonalReminderRead])
 def list_my_reminders(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(_require_ceo),
 ) -> list[PersonalReminderRead]:
     """List personal twice-daily reminders for the logged-in user (dispatching any due alerts first)."""
     process_due_personal_reminders(db)
@@ -271,7 +281,7 @@ def create_reminder(
     payload: PersonalReminderCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(_require_ceo),
 ) -> PersonalReminderRead:
     """Create a twice-daily personal reminder sent until marked completed."""
     now = datetime.now(timezone.utc)
@@ -319,7 +329,7 @@ def update_reminder(
     payload: PersonalReminderUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(_require_ceo),
 ) -> PersonalReminderRead:
     """Update reminder text/schedule or toggle completion to pause/resume twice-daily alerts."""
     rem = db.scalar(select(PersonalReminder).where(PersonalReminder.id == reminder_id))
@@ -370,7 +380,7 @@ def send_reminder_now(
     reminder_id: str,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(_require_ceo),
 ) -> PersonalReminderRead:
     """Manually trigger an immediate reminder email send for a pending reminder."""
     rem = db.scalar(select(PersonalReminder).where(PersonalReminder.id == reminder_id))
@@ -402,7 +412,7 @@ def delete_reminder(
     reminder_id: str,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(_require_ceo),
 ) -> MessageResponse:
     """Delete a single personal reminder."""
     rem = db.scalar(select(PersonalReminder).where(PersonalReminder.id == reminder_id))

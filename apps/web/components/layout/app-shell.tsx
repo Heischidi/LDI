@@ -28,7 +28,7 @@ const NAV_ITEMS = [
   { href: "/requirements", label: "Requirements Manager", icon: ClipboardCheck, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
   { href: "/processed-documents", label: "Processed Documents", icon: FileCheck2, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
   { href: "/reports", label: "Reports", icon: BarChart3, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
-  { href: "/reminders", label: "CEO Reminders", icon: BellRing, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER"] },
+  { href: "/reminders", label: "CEO Reminders", icon: BellRing, roles: ["CEO"] },
   { href: "/staff", label: "Staff Management", icon: ShieldCheck, roles: ["CEO", "SUPER_ADMIN", "ADMIN"] },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["CEO", "SUPER_ADMIN"] },
 ];
@@ -66,9 +66,7 @@ export function AppShell({
     );
   }
 
-  const visibleNav = NAV_ITEMS.filter(
-    (item) => user.role === "SUPER_ADMIN" || user.role === "CEO" || item.roles.includes(user.role)
-  );
+  const visibleNav = NAV_ITEMS.filter((item) => item.roles.includes(user.role));
 
   return (
     <div className="min-h-screen flex bg-slate-50 text-slate-900">
