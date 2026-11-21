@@ -162,6 +162,11 @@ export const ldiApi = {
     }),
   archiveApplicant: (id: string) =>
     apiRequest<{ message: string }>(`/api/applicants/${id}`, { method: "DELETE" }),
+  batchDeleteApplicants: (ids: string[]) =>
+    apiRequest<{ message: string; deleted_count: number; deleted_ids: string[] }>(
+      "/api/applicants/batch-delete",
+      { method: "POST", body: JSON.stringify({ ids }) }
+    ),
 
   listRequirements: () => apiRequest<RequirementSet[]>("/api/requirements"),
   matchRequirementSet: (destinationId: string, purposeId: string, categoryId: string) =>
@@ -178,12 +183,26 @@ export const ldiApi = {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
+  deleteRequirementSet: (id: string) =>
+    apiRequest<{ message: string }>(`/api/requirements/${id}`, { method: "DELETE" }),
+  batchDeleteRequirementSets: (ids: string[]) =>
+    apiRequest<{ message: string; deleted_count: number; deleted_ids: string[] }>(
+      "/api/requirements/batch-delete",
+      { method: "POST", body: JSON.stringify({ ids }) }
+    ),
   listDocumentTypes: () => apiRequest<DocumentType[]>("/api/requirements/document-types"),
   createDocumentType: (payload: Record<string, unknown>) =>
     apiRequest<DocumentType>("/api/requirements/document-types", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  deleteDocumentType: (id: string) =>
+    apiRequest<{ message: string }>(`/api/requirements/document-types/${id}`, { method: "DELETE" }),
+  batchDeleteDocumentTypes: (ids: string[]) =>
+    apiRequest<{ message: string; deleted_count: number; deleted_ids: string[] }>(
+      "/api/requirements/document-types/batch-delete",
+      { method: "POST", body: JSON.stringify({ ids }) }
+    ),
 
   uploadDocuments: (applicantId: string, files: File[]) => {
     const fd = new FormData();
@@ -239,6 +258,13 @@ export const ldiApi = {
       `/api/processing/batches/${batchId}/retry`,
       { method: "POST" }
     ),
+  deleteBatch: (batchId: string) =>
+    apiRequest<{ message: string }>(`/api/processing/batches/${batchId}`, { method: "DELETE" }),
+  batchDeleteBatches: (ids: string[]) =>
+    apiRequest<{ message: string; deleted_count: number; deleted_ids: string[] }>(
+      "/api/processing/batches/batch-delete",
+      { method: "POST", body: JSON.stringify({ ids }) }
+    ),
 
   listProcessedDocuments: (query = "") =>
     apiRequest<
@@ -270,6 +296,13 @@ export const ldiApi = {
     apiRequest<DocumentRecord>(`/api/documents/${documentId}/approve`, { method: "POST" }),
   reprocessDocument: (documentId: string) =>
     apiRequest<DocumentRecord>(`/api/documents/${documentId}/reprocess`, { method: "POST" }),
+  deleteDocument: (documentId: string) =>
+    apiRequest<{ message: string }>(`/api/documents/${documentId}`, { method: "DELETE" }),
+  batchDeleteDocuments: (ids: string[]) =>
+    apiRequest<{ message: string; deleted_count: number; deleted_ids: string[] }>(
+      "/api/documents/batch-delete",
+      { method: "POST", body: JSON.stringify({ ids }) }
+    ),
   bulkApprove: (applicantId: string, minConfidence = 0.9) =>
     apiRequest<{ approved_count: number; approved_document_ids: string[] }>(
       "/api/documents/bulk-approve",
@@ -287,6 +320,13 @@ export const ldiApi = {
       missing_doc_count: number;
       download_url: string;
     }>(`/api/applicants/${applicantId}/export`, { method: "POST" }),
+  deleteExport: (exportId: string) =>
+    apiRequest<{ message: string }>(`/api/exports/${exportId}`, { method: "DELETE" }),
+  batchDeleteExports: (ids: string[]) =>
+    apiRequest<{ message: string; deleted_count: number; deleted_ids: string[] }>(
+      "/api/exports/batch-delete",
+      { method: "POST", body: JSON.stringify({ ids }) }
+    ),
 
   getReportSummary: (query = "") =>
     apiRequest<{
@@ -316,6 +356,13 @@ export const ldiApi = {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
+  deleteUser: (id: string) =>
+    apiRequest<{ message: string }>(`/api/users/${id}`, { method: "DELETE" }),
+  batchDeleteUsers: (ids: string[]) =>
+    apiRequest<{ message: string; deleted_count: number; deleted_ids: string[] }>(
+      "/api/users/batch-delete",
+      { method: "POST", body: JSON.stringify({ ids }) }
+    ),
 
   listAuditLogs: (query = "") =>
     apiRequest<{

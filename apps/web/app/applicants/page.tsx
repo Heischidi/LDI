@@ -77,10 +77,35 @@ export default function ApplicantsPage() {
     },
   });
 
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
   const archiveMutation = useMutation({
     mutationFn: ldiApi.archiveApplicant,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["applicants"] }),
+    onSuccess: (_res, id) => {
+      setSelectedIds((prev) => prev.filter((item) => item !== id));
+      qc.invalidateQueries({ queryKey: ["applicants"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+    },
   });
+
+  const batchDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) => ldiApi.batchDeleteApplicants(ids),
+    onSuccess: () => {
+      setSelectedIds([]);
+      qc.invalidateQueries({ queryKey: ["applicants"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+    },
+  });
+
+  const visibleIds = (data?.items || []).map((a) => a.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+  const toggleSelectAll = () => {
+    setSelectedIds(allVisibleSelected ? [] : visibleIds);
+  };
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+  const canDelete = hasRole("SUPER_ADMIN", "ADMIN", "OFFICER");
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,15 +129,30 @@ export default function ApplicantsPage() {
       title="Applicants"
       subtitle="Manage client records, assigned travel checklists, and document processing status."
       actions={
-        hasRole("SUPER_ADMIN", "ADMIN", "OFFICER") ? (
-          <button
-            onClick={() => setShowNewModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-light"
-          >
-            <Plus className="h-4 w-4" />
-            New Applicant
-          </button>
-        ) : null
+        <div className="flex flex-wrap items-center gap-2">
+          {canDelete && selectedIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => batchDeleteMutation.mutate(selectedIds)}
+              disabled={batchDeleteMutation.isPending}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-60"
+            >
+              <Trash2 className="h-4 w-4" />
+              {batchDeleteMutation.isPending
+                ? "Deleting..."
+                : `Delete Selected (${selectedIds.length})`}
+            </button>
+          )}
+          {canDelete && (
+            <button
+              onClick={() => setShowNewModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-light"
+            >
+              <Plus className="h-4 w-4" />
+              New Applicant
+            </button>
+          )}
+        </div>
       }
     >
       {/* Filters Bar */}
@@ -170,6 +210,17 @@ export default function ApplicantsPage() {
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase">
               <tr>
+                {canDelete && (
+                  <th className="px-4 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Select All Applicants"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAll}
+                      className="rounded border-slate-300"
+                    />
+                  </th>
+                )}
                 <th className="px-4 py-3">Reference</th>
                 <th className="px-4 py-3">Applicant</th>
                 <th className="px-4 py-3">Travel Profile</th>
@@ -182,20 +233,31 @@ export default function ApplicantsPage() {
             <tbody className="divide-y divide-slate-100">
               {isLoading && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
+                  <td colSpan={canDelete ? 8 : 7} className="px-4 py-10 text-center text-slate-400">
                     Loading applicants...
                   </td>
                 </tr>
               )}
               {!isLoading && (data?.items.length ?? 0) === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
+                  <td colSpan={canDelete ? 8 : 7} className="px-4 py-12 text-center text-slate-500">
                     No applicants found. Click <strong>New Applicant</strong> to create one.
                   </td>
                 </tr>
               )}
               {data?.items.map((app) => (
                 <tr key={app.id} className="hover:bg-slate-50/70">
+                  {canDelete && (
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${app.full_name}`}
+                        checked={selectedIds.includes(app.id)}
+                        onChange={() => toggleSelectOne(app.id)}
+                        className="rounded border-slate-300"
+                      />
+                    </td>
+                  )}
                   <td className="px-4 py-3 font-mono text-xs font-semibold text-navy">
                     {app.application_reference}
                   </td>
@@ -227,7 +289,7 @@ export default function ApplicantsPage() {
                   <td className="px-4 py-3 text-xs text-slate-500">
                     {formatDateTime(app.created_at)}
                   </td>
-                  <td className="px-4 py-3 text-right space-x-2">
+                  <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
                     <Link
                       href={`/applicants/${app.id}`}
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-navy hover:bg-navy-50"
@@ -235,13 +297,15 @@ export default function ApplicantsPage() {
                       <Eye className="h-3.5 w-3.5" />
                       Open
                     </Link>
-                    {hasRole("SUPER_ADMIN", "ADMIN") && (
+                    {canDelete && (
                       <button
+                        type="button"
                         onClick={() => archiveMutation.mutate(app.id)}
-                        title="Archive Applicant"
-                        className="inline-flex items-center p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50"
+                        title="Delete Applicant"
+                        className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-red-200 bg-red-50 text-xs font-medium text-red-700 hover:bg-red-100"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
                       </button>
                     )}
                   </td>

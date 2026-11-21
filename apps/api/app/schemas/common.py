@@ -21,3 +21,13 @@ class MessageResponse(BaseModel):
 
     message: str
     detail: str | None = None
+
+
+class BatchDeleteRequest(BaseModel):
+    ids: list[str]
+
+
+class BatchDeleteResponse(BaseModel):
+    message: str
+    deleted_count: int
+    deleted_ids: list[str]

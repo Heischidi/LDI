@@ -16,6 +16,7 @@ from app.models.entities import (
     UploadedDocument,
     User,
 )
+from app.schemas.common import BatchDeleteRequest, BatchDeleteResponse, MessageResponse
 from app.services.audit_service import record_audit_event
 from app.services.checklist_service import sync_applicant_checklist_and_naming
 from app.services.export_service import (
@@ -182,3 +183,85 @@ def download_signed_private_object(
             "Cache-Control": "no-store",
         },
     )
+
+
+@router.post("/exports/batch-delete", response_model=BatchDeleteResponse)
+def batch_delete_exports(
+    payload: BatchDeleteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
+) -> BatchDeleteResponse:
+    """Delete multiple generated export packages and their archive objects."""
+    if not payload.ids:
+        return BatchDeleteResponse(message="No exports selected.", deleted_count=0, deleted_ids=[])
+
+    pkgs = db.scalars(select(ExportPackage).where(ExportPackage.id.in_(payload.ids))).all()
+    storage = get_storage_backend()
+    deleted_ids: list[str] = []
+    for pkg in pkgs:
+        applicant = db.scalar(select(Applicant).where(Applicant.id == pkg.applicant_id))
+        if applicant:
+            ensure_applicant_access(applicant, current_user)
+
+    for pkg in pkgs:
+        for key in (pkg.zip_storage_key, pkg.report_storage_key):
+            if key:
+                try:
+                    storage.delete(key)
+                except Exception:
+                    pass
+        deleted_ids.append(pkg.id)
+        db.delete(pkg)
+
+    record_audit_event(
+        db,
+        action="EXPORTS_BATCH_DELETED",
+        entity_type="export_package",
+        actor=current_user,
+        metadata={"deleted_count": len(deleted_ids), "export_ids": deleted_ids},
+        request=request,
+    )
+    db.commit()
+    return BatchDeleteResponse(
+        message=f"Deleted {len(deleted_ids)} export package(s).",
+        deleted_count=len(deleted_ids),
+        deleted_ids=deleted_ids,
+    )
+
+
+@router.delete("/exports/{export_id}", response_model=MessageResponse)
+def delete_export_package(
+    export_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
+) -> MessageResponse:
+    """Delete a single generated export package."""
+    pkg = db.scalar(select(ExportPackage).where(ExportPackage.id == export_id))
+    if not pkg:
+        raise HTTPException(status_code=404, detail="Export package not found.")
+
+    applicant = db.scalar(select(Applicant).where(Applicant.id == pkg.applicant_id))
+    if applicant:
+        ensure_applicant_access(applicant, current_user)
+
+    storage = get_storage_backend()
+    for key in (pkg.zip_storage_key, pkg.report_storage_key):
+        if key:
+            try:
+                storage.delete(key)
+            except Exception:
+                pass
+    db.delete(pkg)
+    record_audit_event(
+        db,
+        action="EXPORT_DELETED",
+        entity_type="export_package",
+        entity_id=export_id,
+        actor=current_user,
+        metadata={"applicant_id": pkg.applicant_id},
+        request=request,
+    )
+    db.commit()
+    return MessageResponse(message="Deleted export package.")

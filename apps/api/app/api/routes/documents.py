@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
@@ -20,14 +20,17 @@ from app.core.deps import (
 from app.document_processing.mime_validator import UploadValidationError, validate_and_unpack_upload
 from app.models.entities import (
     Applicant,
+    ApplicantDocumentStatus,
     DocumentClassification,
     DocumentReview,
     DocumentType,
+    ProcessedDocument,
     ProcessingJob,
     UploadBatch,
     UploadedDocument,
     User,
 )
+from app.schemas.common import BatchDeleteRequest, BatchDeleteResponse, MessageResponse
 from app.schemas.documents import (
     BulkApproveRequest,
     ClassificationCorrectionRequest,
@@ -672,3 +675,112 @@ def bulk_approve_high_confidence(
     )
     db.commit()
     return {"approved_count": len(approved_ids), "approved_document_ids": approved_ids}
+
+
+def _delete_uploaded_document(db: Session, doc: UploadedDocument) -> str:
+    """Remove an uploaded document, its dependent job/processed rows, and stored object."""
+    applicant_id = doc.applicant_id
+    db.execute(
+        update(ApplicantDocumentStatus)
+        .where(ApplicantDocumentStatus.matched_document_id == doc.id)
+        .values(matched_document_id=None)
+    )
+    db.execute(
+        update(UploadedDocument)
+        .where(UploadedDocument.duplicate_of_id == doc.id)
+        .values(duplicate_of_id=None, is_duplicate=False)
+    )
+    db.execute(delete(ProcessingJob).where(ProcessingJob.uploaded_document_id == doc.id))
+    db.execute(delete(ProcessedDocument).where(ProcessedDocument.uploaded_document_id == doc.id))
+    try:
+        get_storage_backend().delete(doc.storage_key)
+    except Exception:
+        pass
+    if doc.batch is not None:
+        doc.batch.total_files = max(0, (doc.batch.total_files or 1) - 1)
+    db.delete(doc)
+    db.flush()
+    return applicant_id
+
+
+@router.post("/batch-delete", response_model=BatchDeleteResponse)
+def batch_delete_documents(
+    payload: BatchDeleteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
+) -> BatchDeleteResponse:
+    """Delete multiple uploaded documents and re-sync affected applicant checklists."""
+    if not payload.ids:
+        return BatchDeleteResponse(message="No documents selected.", deleted_count=0, deleted_ids=[])
+
+    docs = (
+        db.scalars(
+            select(UploadedDocument)
+            .options(joinedload(UploadedDocument.applicant), joinedload(UploadedDocument.batch))
+            .where(UploadedDocument.id.in_(payload.ids))
+        )
+        .unique()
+        .all()
+    )
+    for doc in docs:
+        if doc.applicant:
+            ensure_applicant_access(doc.applicant, current_user)
+
+    deleted_ids: list[str] = []
+    affected_applicants: set[str] = set()
+    for doc in docs:
+        deleted_ids.append(doc.id)
+        affected_applicants.add(_delete_uploaded_document(db, doc))
+
+    for app_id in affected_applicants:
+        sync_applicant_checklist_and_naming(db, app_id)
+
+    record_audit_event(
+        db,
+        action="DOCUMENTS_BATCH_DELETED",
+        entity_type="uploaded_document",
+        actor=current_user,
+        metadata={"deleted_count": len(deleted_ids), "document_ids": deleted_ids},
+        request=request,
+    )
+    db.commit()
+    return BatchDeleteResponse(
+        message=f"Deleted {len(deleted_ids)} document(s).",
+        deleted_count=len(deleted_ids),
+        deleted_ids=deleted_ids,
+    )
+
+
+@router.delete("/{document_id}", response_model=MessageResponse)
+def delete_document(
+    document_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
+) -> MessageResponse:
+    """Delete a single uploaded document and re-sync the applicant's checklist."""
+    doc = db.scalar(
+        select(UploadedDocument)
+        .options(joinedload(UploadedDocument.applicant), joinedload(UploadedDocument.batch))
+        .where(UploadedDocument.id == document_id)
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if doc.applicant:
+        ensure_applicant_access(doc.applicant, current_user)
+
+    filename = doc.original_filename
+    applicant_id = _delete_uploaded_document(db, doc)
+    sync_applicant_checklist_and_naming(db, applicant_id)
+    record_audit_event(
+        db,
+        action="DOCUMENT_DELETED",
+        entity_type="uploaded_document",
+        entity_id=document_id,
+        actor=current_user,
+        metadata={"applicant_id": applicant_id, "filename": filename},
+        request=request,
+    )
+    db.commit()
+    return MessageResponse(message=f"Deleted document {filename}.")

@@ -1,7 +1,8 @@
 "use client";
 
+import React, { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -9,11 +10,13 @@ import {
   FileCheck2,
   FileWarning,
   Plus,
+  Trash2,
   UploadCloud,
   Users,
   XCircle,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
+import { useAuth } from "@/hooks/use-auth";
 import { ldiApi } from "@/lib/api-client";
 import { formatDateTime, statusColorClasses } from "@/lib/utils";
 
@@ -55,11 +58,38 @@ function HorizontalBarChart({
 }
 
 export default function DashboardPage() {
+  const { hasRole } = useAuth();
+  const qc = useQueryClient();
+  const canDelete = hasRole("SUPER_ADMIN", "ADMIN", "OFFICER");
+  const [selectedAppIds, setSelectedAppIds] = useState<string[]>([]);
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["dashboard-metrics"],
     queryFn: ldiApi.getDashboardMetrics,
     refetchInterval: 15_000,
   });
+
+  const deleteAppMutation = useMutation({
+    mutationFn: ldiApi.archiveApplicant,
+    onSuccess: (_res, id) => {
+      setSelectedAppIds((prev) => prev.filter((x) => x !== id));
+      qc.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+      qc.invalidateQueries({ queryKey: ["applicants"] });
+    },
+  });
+
+  const batchDeleteAppsMutation = useMutation({
+    mutationFn: ldiApi.batchDeleteApplicants,
+    onSuccess: () => {
+      setSelectedAppIds([]);
+      qc.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+      qc.invalidateQueries({ queryKey: ["applicants"] });
+    },
+  });
+
+  const recentAppIds = (data?.recent_applicants || []).map((a) => a.id);
+  const allRecentSelected =
+    recentAppIds.length > 0 && recentAppIds.every((id) => selectedAppIds.includes(id));
 
   const kpis = data
     ? [
@@ -223,34 +253,84 @@ export default function DashboardPage() {
           {/* Recent Applicants & Recent Activity */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <h3 className="text-sm font-semibold text-navy">Recent Applicants</h3>
-                <Link href="/applicants" className="text-xs font-medium text-brand hover:underline">
-                  View All
-                </Link>
+                <div className="flex items-center gap-2.5">
+                  {canDelete && recentAppIds.length > 0 && (
+                    <label className="inline-flex items-center gap-1 text-xs text-slate-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={allRecentSelected}
+                        onChange={() =>
+                          setSelectedAppIds(allRecentSelected ? [] : recentAppIds)
+                        }
+                        className="rounded border-slate-300"
+                      />
+                      All
+                    </label>
+                  )}
+                  {canDelete && selectedAppIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => batchDeleteAppsMutation.mutate(selectedAppIds)}
+                      disabled={batchDeleteAppsMutation.isPending}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-red-600 text-white text-xs font-medium hover:bg-red-700"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Delete ({selectedAppIds.length})
+                    </button>
+                  )}
+                  <Link href="/applicants" className="text-xs font-medium text-brand hover:underline">
+                    View All
+                  </Link>
+                </div>
               </div>
               {data.recent_applicants.length === 0 ? (
                 <p className="text-xs text-slate-400 py-6 text-center">No applicants created yet.</p>
               ) : (
                 <div className="divide-y divide-slate-100">
                   {data.recent_applicants.map((app) => (
-                    <Link
+                    <div
                       key={app.id}
-                      href={`/applicants/${app.id}`}
-                      className="py-2.5 flex items-center justify-between hover:bg-slate-50 rounded-lg px-2 -mx-2"
+                      className="py-2.5 flex items-center justify-between gap-2 hover:bg-slate-50 rounded-lg px-2 -mx-2"
                     >
-                      <div>
-                        <p className="text-sm font-medium text-slate-900">{app.full_name}</p>
-                        <p className="text-xs text-slate-500">
+                      {canDelete && (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${app.full_name}`}
+                          checked={selectedAppIds.includes(app.id)}
+                          onChange={() =>
+                            setSelectedAppIds((prev) =>
+                              prev.includes(app.id)
+                                ? prev.filter((id) => id !== app.id)
+                                : [...prev, app.id]
+                            )
+                          }
+                          className="rounded border-slate-300 shrink-0"
+                        />
+                      )}
+                      <Link href={`/applicants/${app.id}`} className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900 truncate">{app.full_name}</p>
+                        <p className="text-xs text-slate-500 truncate">
                           {app.application_reference} · {app.destination} ({app.purpose})
                         </p>
-                      </div>
+                      </Link>
                       <span
-                        className={`px-2 py-0.5 rounded-full text-[11px] font-medium border ${statusColorClasses(app.status)}`}
+                        className={`px-2 py-0.5 rounded-full text-[11px] font-medium border shrink-0 ${statusColorClasses(app.status)}`}
                       >
                         {app.status}
                       </span>
-                    </Link>
+                      {canDelete && (
+                        <button
+                          type="button"
+                          onClick={() => deleteAppMutation.mutate(app.id)}
+                          title="Delete Applicant"
+                          className="p-1.5 rounded border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 shrink-0"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}

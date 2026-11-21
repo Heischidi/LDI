@@ -59,6 +59,9 @@ export default function RequirementsManagerPage() {
   const [addMinValidity, setAddMinValidity] = useState("");
   const [addInstructions, setAddInstructions] = useState("");
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
+  const [selectedSetIds, setSelectedSetIds] = useState<string[]>([]);
+  const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
+  const [selectedTypeIds, setSelectedTypeIds] = useState<string[]>([]);
 
   const filteredSets = countryFilter
     ? reqSets.filter((rs) => rs.destination_id === countryFilter)
@@ -70,7 +73,48 @@ export default function RequirementsManagerPage() {
     mutationFn: ({ id, payload }: { id: string; payload: Record<string, unknown> }) =>
       ldiApi.updateRequirementSet(id, payload),
     onSuccess: () => {
+      setSelectedRuleIds([]);
       setBannerMsg("Checklist updated and new immutable version snapshot saved.");
+      qc.invalidateQueries({ queryKey: ["requirement-sets"] });
+    },
+  });
+
+  const deleteSetMutation = useMutation({
+    mutationFn: ldiApi.deleteRequirementSet,
+    onSuccess: (res, id) => {
+      setSelectedSetIds((prev) => prev.filter((x) => x !== id));
+      if (selectedSetId === id) setSelectedSetId(null);
+      setBannerMsg(res.message);
+      qc.invalidateQueries({ queryKey: ["requirement-sets"] });
+    },
+  });
+
+  const batchDeleteSetsMutation = useMutation({
+    mutationFn: ldiApi.batchDeleteRequirementSets,
+    onSuccess: (res) => {
+      setSelectedSetIds([]);
+      if (selectedSetId && res.deleted_ids.includes(selectedSetId)) setSelectedSetId(null);
+      setBannerMsg(res.message);
+      qc.invalidateQueries({ queryKey: ["requirement-sets"] });
+    },
+  });
+
+  const deleteTypeMutation = useMutation({
+    mutationFn: ldiApi.deleteDocumentType,
+    onSuccess: (res, id) => {
+      setSelectedTypeIds((prev) => prev.filter((x) => x !== id));
+      setBannerMsg(res.message);
+      qc.invalidateQueries({ queryKey: ["document-types"] });
+      qc.invalidateQueries({ queryKey: ["requirement-sets"] });
+    },
+  });
+
+  const batchDeleteTypesMutation = useMutation({
+    mutationFn: ldiApi.batchDeleteDocumentTypes,
+    onSuccess: (res) => {
+      setSelectedTypeIds([]);
+      setBannerMsg(res.message);
+      qc.invalidateQueries({ queryKey: ["document-types"] });
       qc.invalidateQueries({ queryKey: ["requirement-sets"] });
     },
   });
@@ -177,6 +221,32 @@ export default function RequirementsManagerPage() {
     });
   };
 
+  const removeSelectedRules = () => {
+    if (!activeSet?.active_version || selectedRuleIds.length === 0) return;
+    const remaining = (activeSet.active_version.items || [])
+      .filter((i) => !selectedRuleIds.includes(i.id))
+      .map((i, idx) => ({
+        document_type_id: i.document_type_id,
+        requirement_level: i.requirement_level,
+        display_order: idx + 1,
+        condition_expression: null,
+        condition_explanation: i.condition_explanation,
+        min_validity_days: i.min_validity_days,
+        custom_instructions: i.custom_instructions,
+      }));
+    if (remaining.length === 0) {
+      setBannerMsg("A checklist must keep at least 1 rule (or delete the checklist itself).");
+      return;
+    }
+    updateSetMutation.mutate({
+      id: activeSet.id,
+      payload: {
+        change_notes: `Batch removed ${selectedRuleIds.length} requirement rule(s)`,
+        items: remaining,
+      },
+    });
+  };
+
   const removeItemFromActiveSet = (index: number) => {
     if (!activeSet?.active_version) return;
     const remaining = mapExistingItems()
@@ -188,6 +258,17 @@ export default function RequirementsManagerPage() {
       payload: { change_notes: "Removed requirement rule from checklist", items: remaining },
     });
   };
+
+  const visibleSetIds = filteredSets.map((s) => s.id);
+  const allSetsSelected =
+    visibleSetIds.length > 0 && visibleSetIds.every((id) => selectedSetIds.includes(id));
+  const activeItems = activeSet?.active_version?.items || [];
+  const activeRuleIds = activeItems.map((i) => i.id);
+  const allRulesSelected =
+    activeRuleIds.length > 0 && activeRuleIds.every((id) => selectedRuleIds.includes(id));
+  const allTypeIds = docTypes.map((dt) => dt.id);
+  const allTypesSelected =
+    allTypeIds.length > 0 && allTypeIds.every((id) => selectedTypeIds.includes(id));
 
   return (
     <AppShell
@@ -385,49 +466,102 @@ export default function RequirementsManagerPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Requirement Sets List */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               Configured Checklists ({filteredSets.length})
             </h3>
-            <select
-              value={countryFilter}
-              onChange={(e) => setCountryFilter(e.target.value)}
-              className="px-2.5 py-1 text-xs rounded-lg border border-slate-300 bg-white"
-            >
-              <option value="">All Countries ({reqSets.length})</option>
-              {destinations.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2">
+              {canEdit && filteredSets.length > 0 && (
+                <label className="inline-flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={allSetsSelected}
+                    onChange={() => setSelectedSetIds(allSetsSelected ? [] : visibleSetIds)}
+                    className="rounded border-slate-300"
+                  />
+                  All
+                </label>
+              )}
+              {canEdit && selectedSetIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => batchDeleteSetsMutation.mutate(selectedSetIds)}
+                  disabled={batchDeleteSetsMutation.isPending}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-600 text-white text-[11px] font-medium hover:bg-red-700"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  Delete ({selectedSetIds.length})
+                </button>
+              )}
+              <select
+                value={countryFilter}
+                onChange={(e) => setCountryFilter(e.target.value)}
+                className="px-2.5 py-1 text-xs rounded-lg border border-slate-300 bg-white"
+              >
+                <option value="">All Countries ({reqSets.length})</option>
+                {destinations.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           {isLoading ? (
             <div className="h-32 rounded-xl bg-white border border-slate-200 animate-pulse" />
           ) : (
             <div className="space-y-2.5 max-h-[680px] overflow-y-auto pr-1">
               {filteredSets.map((rs) => (
-                <button
+                <div
                   key={rs.id}
-                  onClick={() => {
-                    setSelectedSetId(rs.id);
-                    setNewNaming(rs.naming_convention);
-                  }}
-                  className={`w-full text-left p-4 rounded-xl border transition-all ${
+                  className={`p-4 rounded-xl border transition-all flex items-start gap-2.5 ${
                     activeSet?.id === rs.id
                       ? "bg-white border-navy ring-2 ring-navy/10 shadow-sm"
                       : "bg-white border-slate-200 hover:border-slate-300"
                   }`}
                 >
-                  <div className="font-semibold text-sm text-navy">{rs.name}</div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    {rs.destination_name} · {rs.purpose_name} · {rs.category_name}
-                  </div>
-                  <div className="text-[11px] text-brand font-medium mt-2">
-                    Active Version v{rs.active_version?.version_number || 1} ·{" "}
-                    {rs.active_version?.items.length || 0} rules
-                  </div>
-                </button>
+                  {canEdit && (
+                    <input
+                      type="checkbox"
+                      aria-label={`Select checklist ${rs.name}`}
+                      checked={selectedSetIds.includes(rs.id)}
+                      onChange={() =>
+                        setSelectedSetIds((prev) =>
+                          prev.includes(rs.id) ? prev.filter((id) => id !== rs.id) : [...prev, rs.id]
+                        )
+                      }
+                      className="mt-1 rounded border-slate-300 shrink-0"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSetId(rs.id);
+                      setSelectedRuleIds([]);
+                      setNewNaming(rs.naming_convention);
+                    }}
+                    className="flex-1 text-left min-w-0"
+                  >
+                    <div className="font-semibold text-sm text-navy">{rs.name}</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {rs.destination_name} · {rs.purpose_name} · {rs.category_name}
+                    </div>
+                    <div className="text-[11px] text-brand font-medium mt-2">
+                      Active Version v{rs.active_version?.version_number || 1} ·{" "}
+                      {rs.active_version?.items.length || 0} rules
+                    </div>
+                  </button>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => deleteSetMutation.mutate(rs.id)}
+                      title="Delete Checklist"
+                      className="p-1.5 rounded border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 shrink-0"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           )}
@@ -446,6 +580,33 @@ export default function RequirementsManagerPage() {
                       {activeSet.folder_template}
                     </code>
                   </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {canEdit && selectedRuleIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={removeSelectedRules}
+                      disabled={
+                        updateSetMutation.isPending ||
+                        activeItems.length - selectedRuleIds.length < 1
+                      }
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete Selected Rules ({selectedRuleIds.length})
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => deleteSetMutation.mutate(activeSet.id)}
+                      disabled={deleteSetMutation.isPending}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs font-medium hover:bg-red-100"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete Checklist
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -490,6 +651,19 @@ export default function RequirementsManagerPage() {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase">
                     <tr>
+                      {canEdit && (
+                        <th className="px-3 py-2 w-8">
+                          <input
+                            type="checkbox"
+                            aria-label="Select All Checklist Rules"
+                            checked={allRulesSelected}
+                            onChange={() =>
+                              setSelectedRuleIds(allRulesSelected ? [] : activeRuleIds)
+                            }
+                            className="rounded border-slate-300"
+                          />
+                        </th>
+                      )}
                       <th className="px-3 py-2">Order</th>
                       <th className="px-3 py-2">Document Type</th>
                       <th className="px-3 py-2">Requirement</th>
@@ -499,8 +673,25 @@ export default function RequirementsManagerPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {activeSet.active_version?.items.map((item, idx) => (
+                    {activeItems.map((item, idx) => (
                       <tr key={item.id}>
+                        {canEdit && (
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${item.document_type_name}`}
+                              checked={selectedRuleIds.includes(item.id)}
+                              onChange={() =>
+                                setSelectedRuleIds((prev) =>
+                                  prev.includes(item.id)
+                                    ? prev.filter((id) => id !== item.id)
+                                    : [...prev, item.id]
+                                )
+                              }
+                              className="rounded border-slate-300"
+                            />
+                          </td>
+                        )}
                         <td className="px-3 py-2 font-mono text-slate-500">{item.display_order}</td>
                         <td className="px-3 py-2 font-medium text-slate-900">
                           {item.document_type_name}
@@ -538,7 +729,7 @@ export default function RequirementsManagerPage() {
                             <button
                               type="button"
                               onClick={() => removeItemFromActiveSet(idx)}
-                              disabled={(activeSet.active_version?.items.length || 0) <= 1}
+                              disabled={activeItems.length <= 1}
                               title="Remove from checklist"
                               className="p-1 rounded text-red-600 hover:bg-red-50 disabled:opacity-30"
                             >
@@ -635,26 +826,84 @@ export default function RequirementsManagerPage() {
 
           {/* Canonical Document Types & Aliases */}
           <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
-            <h3 className="text-sm font-semibold text-navy">
-              Canonical Document Types &amp; Aliases ({docTypes.length})
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-navy">
+                Canonical Document Types &amp; Aliases ({docTypes.length})
+              </h3>
+              {canEdit && docTypes.length > 0 && (
+                <div className="flex items-center gap-2.5">
+                  <label className="inline-flex items-center gap-1 text-xs text-slate-600 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={allTypesSelected}
+                      onChange={() => setSelectedTypeIds(allTypesSelected ? [] : allTypeIds)}
+                      className="rounded border-slate-300"
+                    />
+                    Select All
+                  </label>
+                  {selectedTypeIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => batchDeleteTypesMutation.mutate(selectedTypeIds)}
+                      disabled={batchDeleteTypesMutation.isPending}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-red-600 text-white text-xs font-medium hover:bg-red-700"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Delete Selected ({selectedTypeIds.length})
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-1">
               {docTypes.map((dt) => (
-                <div key={dt.id} className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 text-xs">
-                  <div className="font-semibold text-navy">{dt.name}</div>
-                  <div className="font-mono text-[10px] text-slate-400">{dt.code}</div>
-                  {dt.aliases.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {dt.aliases.map((al) => (
-                        <span
-                          key={al.id}
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[10px] text-slate-600"
-                        >
-                          <Tag className="h-2.5 w-2.5" />
-                          {al.alias_name}
-                        </span>
-                      ))}
+                <div
+                  key={dt.id}
+                  className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 text-xs flex items-start justify-between gap-2"
+                >
+                  <div className="flex items-start gap-2 min-w-0 flex-1">
+                    {canEdit && (
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${dt.name}`}
+                        checked={selectedTypeIds.includes(dt.id)}
+                        onChange={() =>
+                          setSelectedTypeIds((prev) =>
+                            prev.includes(dt.id)
+                              ? prev.filter((id) => id !== dt.id)
+                              : [...prev, dt.id]
+                          )
+                        }
+                        className="mt-0.5 rounded border-slate-300 shrink-0"
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <div className="font-semibold text-navy truncate">{dt.name}</div>
+                      <div className="font-mono text-[10px] text-slate-400 truncate">{dt.code}</div>
+                      {dt.aliases.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {dt.aliases.map((al) => (
+                            <span
+                              key={al.id}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[10px] text-slate-600"
+                            >
+                              <Tag className="h-2.5 w-2.5" />
+                              {al.alias_name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
+                  </div>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => deleteTypeMutation.mutate(dt.id)}
+                      title="Delete Document Type"
+                      className="p-1 rounded border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 shrink-0"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   )}
                 </div>
               ))}

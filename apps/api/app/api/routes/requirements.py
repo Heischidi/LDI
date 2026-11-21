@@ -1,19 +1,25 @@
 """Configurable Document Requirements Engine & Document Types/Aliases API endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.core.deps import ROLE_ADMIN, ROLE_OFFICER, ROLE_SUPER_ADMIN, ROLE_VIEWER, get_current_user, require_roles
 from app.models.entities import (
+    Applicant,
+    ApplicantDocumentStatus,
     DocumentAlias,
+    DocumentClassification,
     DocumentRequirement,
     DocumentType,
+    ProcessedDocument,
     RequirementSet,
     RequirementVersion,
+    UploadBatch,
     User,
 )
+from app.schemas.common import BatchDeleteRequest, BatchDeleteResponse, MessageResponse
 from app.schemas.requirements import (
     DocumentAliasRead,
     DocumentRequirementItemRead,
@@ -292,6 +298,175 @@ def create_requirement_set(
         .where(RequirementSet.id == rs.id)
     )
     return _serialize_req_set(loaded)
+
+
+def _delete_requirement_set_row(db: Session, rs: RequirementSet) -> None:
+    rs.active_version_id = None
+    db.flush()
+    ver_ids = db.scalars(
+        select(RequirementVersion.id).where(RequirementVersion.requirement_set_id == rs.id)
+    ).all()
+    if ver_ids:
+        db.execute(
+            update(Applicant)
+            .where(Applicant.requirement_version_id.in_(ver_ids))
+            .values(requirement_version_id=None)
+        )
+        db.execute(
+            update(UploadBatch)
+            .where(UploadBatch.requirement_version_id.in_(ver_ids))
+            .values(requirement_version_id=None)
+        )
+        db.execute(
+            delete(ApplicantDocumentStatus).where(
+                ApplicantDocumentStatus.requirement_version_id.in_(ver_ids)
+            )
+        )
+        db.execute(
+            delete(DocumentRequirement).where(
+                DocumentRequirement.requirement_version_id.in_(ver_ids)
+            )
+        )
+        db.execute(delete(RequirementVersion).where(RequirementVersion.id.in_(ver_ids)))
+        db.flush()
+    db.execute(delete(RequirementSet).where(RequirementSet.id == rs.id))
+
+
+def _delete_document_type_row(db: Session, dt_id: str) -> None:
+    db.execute(
+        delete(ApplicantDocumentStatus).where(ApplicantDocumentStatus.document_type_id == dt_id)
+    )
+    db.execute(delete(DocumentRequirement).where(DocumentRequirement.document_type_id == dt_id))
+    db.execute(delete(DocumentAlias).where(DocumentAlias.document_type_id == dt_id))
+    db.execute(
+        update(DocumentClassification)
+        .where(DocumentClassification.document_type_id == dt_id)
+        .values(document_type_id=None)
+    )
+    db.execute(
+        update(ProcessedDocument)
+        .where(ProcessedDocument.document_type_id == dt_id)
+        .values(document_type_id=None)
+    )
+    db.execute(delete(DocumentType).where(DocumentType.id == dt_id))
+
+
+@router.post("/document-types/batch-delete", response_model=BatchDeleteResponse)
+def batch_delete_document_types(
+    payload: BatchDeleteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN)),
+) -> BatchDeleteResponse:
+    """Delete multiple canonical document types and clean up dependent checklist/alias links."""
+    if not payload.ids:
+        return BatchDeleteResponse(message="No document types selected.", deleted_count=0, deleted_ids=[])
+
+    rows = db.scalars(select(DocumentType).where(DocumentType.id.in_(payload.ids))).all()
+    deleted_ids = [r.id for r in rows]
+    for dt_id in deleted_ids:
+        _delete_document_type_row(db, dt_id)
+
+    record_audit_event(
+        db,
+        action="DOCUMENT_TYPES_BATCH_DELETED",
+        entity_type="document_type",
+        actor=current_user,
+        metadata={"deleted_count": len(deleted_ids), "document_type_ids": deleted_ids},
+        request=request,
+    )
+    db.commit()
+    return BatchDeleteResponse(
+        message=f"Deleted {len(deleted_ids)} document type(s).",
+        deleted_count=len(deleted_ids),
+        deleted_ids=deleted_ids,
+    )
+
+
+@router.delete("/document-types/{document_type_id}", response_model=MessageResponse)
+def delete_document_type(
+    document_type_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN)),
+) -> MessageResponse:
+    """Delete a single canonical document type."""
+    dt = db.scalar(select(DocumentType).where(DocumentType.id == document_type_id))
+    if not dt:
+        raise HTTPException(status_code=404, detail="Document type not found.")
+
+    name = dt.name
+    _delete_document_type_row(db, dt.id)
+    record_audit_event(
+        db,
+        action="DOCUMENT_TYPE_DELETED",
+        entity_type="document_type",
+        entity_id=document_type_id,
+        actor=current_user,
+        metadata={"name": name},
+        request=request,
+    )
+    db.commit()
+    return MessageResponse(message=f"Deleted document type {name}.")
+
+
+@router.post("/batch-delete", response_model=BatchDeleteResponse)
+def batch_delete_requirement_sets(
+    payload: BatchDeleteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN)),
+) -> BatchDeleteResponse:
+    """Delete multiple requirement sets and their versions."""
+    if not payload.ids:
+        return BatchDeleteResponse(message="No requirement sets selected.", deleted_count=0, deleted_ids=[])
+
+    rows = db.scalars(select(RequirementSet).where(RequirementSet.id.in_(payload.ids))).all()
+    deleted_ids = [rs.id for rs in rows]
+    for rs in rows:
+        _delete_requirement_set_row(db, rs)
+
+    record_audit_event(
+        db,
+        action="REQUIREMENTS_BATCH_DELETED",
+        entity_type="requirement_set",
+        actor=current_user,
+        metadata={"deleted_count": len(deleted_ids), "requirement_set_ids": deleted_ids},
+        request=request,
+    )
+    db.commit()
+    return BatchDeleteResponse(
+        message=f"Deleted {len(deleted_ids)} checklist(s).",
+        deleted_count=len(deleted_ids),
+        deleted_ids=deleted_ids,
+    )
+
+
+@router.delete("/{requirement_set_id}", response_model=MessageResponse)
+def delete_requirement_set(
+    requirement_set_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN)),
+) -> MessageResponse:
+    """Delete a single requirement set and its version snapshots."""
+    rs = db.scalar(select(RequirementSet).where(RequirementSet.id == requirement_set_id))
+    if not rs:
+        raise HTTPException(status_code=404, detail="Requirement set not found.")
+
+    name = rs.name
+    _delete_requirement_set_row(db, rs)
+    record_audit_event(
+        db,
+        action="REQUIREMENTS_DELETED",
+        entity_type="requirement_set",
+        entity_id=requirement_set_id,
+        actor=current_user,
+        metadata={"name": name},
+        request=request,
+    )
+    db.commit()
+    return MessageResponse(message=f"Deleted checklist {name}.")
 
 
 @router.patch("/{requirement_set_id}", response_model=RequirementSetRead)

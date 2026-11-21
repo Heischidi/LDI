@@ -48,7 +48,7 @@ from app.schemas.applicants import (
     TravelPurposeCreate,
     TravelPurposeRead,
 )
-from app.schemas.common import MessageResponse, PaginatedResponse
+from app.schemas.common import BatchDeleteRequest, BatchDeleteResponse, MessageResponse, PaginatedResponse
 from app.services.audit_service import record_audit_event
 from app.services.checklist_service import sync_applicant_checklist_and_naming
 from app.services.email_service import (
@@ -716,17 +716,58 @@ def update_applicant(
     return get_applicant_detail(app.id, db=db, current_user=current_user)
 
 
+@router.post("/applicants/batch-delete", response_model=BatchDeleteResponse)
+def batch_delete_applicants(
+    payload: BatchDeleteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
+) -> BatchDeleteResponse:
+    """Soft-archive multiple applicant records at once."""
+    if not payload.ids:
+        return BatchDeleteResponse(message="No applicants selected.", deleted_count=0, deleted_ids=[])
+
+    apps = db.scalars(select(Applicant).where(Applicant.id.in_(payload.ids))).all()
+    is_privileged = bool(current_user.role and current_user.role.name in {ROLE_SUPER_ADMIN, ROLE_ADMIN})
+    deleted_ids: list[str] = []
+    now = datetime.now(timezone.utc)
+    for app in apps:
+        if not is_privileged:
+            ensure_applicant_access(app, current_user)
+        app.is_archived = True
+        app.status = "ARCHIVED"
+        app.archived_at = now
+        deleted_ids.append(app.id)
+
+    record_audit_event(
+        db,
+        action="APPLICANTS_BATCH_DELETED",
+        entity_type="applicant",
+        actor=current_user,
+        metadata={"deleted_count": len(deleted_ids), "applicant_ids": deleted_ids},
+        request=request,
+    )
+    db.commit()
+    return BatchDeleteResponse(
+        message=f"Deleted {len(deleted_ids)} applicant(s).",
+        deleted_count=len(deleted_ids),
+        deleted_ids=deleted_ids,
+    )
+
+
 @router.delete("/applicants/{applicant_id}", response_model=MessageResponse)
 def archive_applicant(
     applicant_id: str,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN)),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
 ) -> MessageResponse:
     """Soft-archive an applicant record without destroying audit trail."""
     app = db.scalar(select(Applicant).where(Applicant.id == applicant_id))
     if not app:
         raise HTTPException(status_code=404, detail="Applicant not found.")
+    if current_user.role and current_user.role.name not in {ROLE_SUPER_ADMIN, ROLE_ADMIN}:
+        ensure_applicant_access(app, current_user)
 
     app.is_archived = True
     app.status = "ARCHIVED"
@@ -741,4 +782,4 @@ def archive_applicant(
         request=request,
     )
     db.commit()
-    return MessageResponse(message=f"Applicant {app.application_reference} archived.")
+    return MessageResponse(message=f"Applicant {app.application_reference} deleted.")

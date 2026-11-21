@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -17,21 +17,28 @@ import {
   Mail,
   RefreshCw,
   Send,
+  Trash2,
   UploadCloud,
   XCircle,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
+import { useAuth } from "@/hooks/use-auth";
 import { API_BASE_URL, downloadAuthorizedFile, getStoredTokens, ldiApi } from "@/lib/api-client";
 import { formatBytes, formatDateTime, statusColorClasses } from "@/lib/utils";
 import type { DocumentRecord } from "@/types";
 
 export default function ApplicantDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const { hasRole } = useAuth();
+  const canDelete = hasRole("SUPER_ADMIN", "ADMIN", "OFFICER");
   const applicantId = params.id;
   const qc = useQueryClient();
 
   const [previewDoc, setPreviewDoc] = useState<DocumentRecord | null>(null);
   const [statusBanner, setStatusBanner] = useState<string | null>(null);
+  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
+  const [selectedExportIds, setSelectedExportIds] = useState<string[]>([]);
   const [track, setTrack] = useState<string>("DOCUMENT_REMINDER");
   const [stageCode, setStageCode] = useState<string>("MISSING_DOCUMENTS_REMINDER");
   const [emailSubject, setEmailSubject] = useState<string>("");
@@ -99,6 +106,9 @@ export default function ApplicantDetailPage() {
 
   const refreshAll = () => {
     qc.invalidateQueries({ queryKey: ["applicant", applicantId] });
+    qc.invalidateQueries({ queryKey: ["processed-documents"] });
+    qc.invalidateQueries({ queryKey: ["processing-batches"] });
+    qc.invalidateQueries({ queryKey: ["applicants"] });
     qc.invalidateQueries({ queryKey: ["dashboard-metrics"] });
   };
 
@@ -126,6 +136,53 @@ export default function ApplicantDetailPage() {
     },
   });
 
+  const deleteApplicantMutation = useMutation({
+    mutationFn: () => ldiApi.archiveApplicant(applicantId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["applicants"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+      router.push("/applicants");
+    },
+  });
+
+  const deleteDocMutation = useMutation({
+    mutationFn: ldiApi.deleteDocument,
+    onSuccess: (res, docId) => {
+      setSelectedDocIds((prev) => prev.filter((id) => id !== docId));
+      if (previewDoc?.id === docId) setPreviewDoc(null);
+      setStatusBanner(res.message);
+      refreshAll();
+    },
+  });
+
+  const batchDeleteDocsMutation = useMutation({
+    mutationFn: ldiApi.batchDeleteDocuments,
+    onSuccess: (res) => {
+      setSelectedDocIds([]);
+      setPreviewDoc(null);
+      setStatusBanner(res.message);
+      refreshAll();
+    },
+  });
+
+  const deleteExportMutation = useMutation({
+    mutationFn: ldiApi.deleteExport,
+    onSuccess: (res, id) => {
+      setSelectedExportIds((prev) => prev.filter((x) => x !== id));
+      setStatusBanner(res.message);
+      refreshAll();
+    },
+  });
+
+  const batchDeleteExportsMutation = useMutation({
+    mutationFn: ldiApi.batchDeleteExports,
+    onSuccess: (res) => {
+      setSelectedExportIds([]);
+      setStatusBanner(res.message);
+      refreshAll();
+    },
+  });
+
   const exportMutation = useMutation({
     mutationFn: () => ldiApi.generateExport(applicantId),
     onSuccess: async (res) => {
@@ -139,6 +196,11 @@ export default function ApplicantDetailPage() {
   });
 
   const token = getStoredTokens().access;
+  const allDocIds = (applicant?.documents || []).map((d) => d.id);
+  const allDocsSelected = allDocIds.length > 0 && allDocIds.every((id) => selectedDocIds.includes(id));
+  const allExportIds = (applicant?.exports || []).map((e) => e.id);
+  const allExportsSelected =
+    allExportIds.length > 0 && allExportIds.every((id) => selectedExportIds.includes(id));
 
   return (
     <AppShell
@@ -186,6 +248,17 @@ export default function ApplicantDetailPage() {
               <FolderArchive className="h-4 w-4" />
               {exportMutation.isPending ? "Packaging..." : "Download Organised Folder"}
             </button>
+            {canDelete && (
+              <button
+                type="button"
+                onClick={() => deleteApplicantMutation.mutate()}
+                disabled={deleteApplicantMutation.isPending}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm font-medium hover:bg-red-100 disabled:opacity-60"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deleteApplicantMutation.isPending ? "Deleting..." : "Delete Applicant"}
+              </button>
+            )}
           </>
         ) : null
       }
@@ -473,7 +546,7 @@ export default function ApplicantDetailPage() {
 
           {/* Classification Review Interface */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+            <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-semibold text-navy">
                   Uploaded Documents &amp; AI Classification Review ({applicant.documents.length})
@@ -482,6 +555,19 @@ export default function ApplicantDetailPage() {
                   Original files are preserved immutably. Override uncertain AI classifications or exclude irrelevant files before export.
                 </p>
               </div>
+              {canDelete && selectedDocIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => batchDeleteDocsMutation.mutate(selectedDocIds)}
+                  disabled={batchDeleteDocsMutation.isPending}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-60"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {batchDeleteDocsMutation.isPending
+                    ? "Deleting..."
+                    : `Delete Selected (${selectedDocIds.length})`}
+                </button>
+              )}
             </div>
 
             {applicant.documents.length === 0 ? (
@@ -493,6 +579,17 @@ export default function ApplicantDetailPage() {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase">
                     <tr>
+                      {canDelete && (
+                        <th className="px-4 py-2.5 w-10">
+                          <input
+                            type="checkbox"
+                            aria-label="Select All Uploaded Documents"
+                            checked={allDocsSelected}
+                            onChange={() => setSelectedDocIds(allDocsSelected ? [] : allDocIds)}
+                            className="rounded border-slate-300"
+                          />
+                        </th>
+                      )}
                       <th className="px-4 py-2.5">Original Filename</th>
                       <th className="px-4 py-2.5">AI Type (Editable)</th>
                       <th className="px-4 py-2.5">Confidence</th>
@@ -507,6 +604,23 @@ export default function ApplicantDetailPage() {
                       const cls = doc.classification;
                       return (
                         <tr key={doc.id} className={doc.is_excluded ? "bg-slate-50 opacity-60" : ""}>
+                          {canDelete && (
+                            <td className="px-4 py-3">
+                              <input
+                                type="checkbox"
+                                aria-label={`Select ${doc.original_filename}`}
+                                checked={selectedDocIds.includes(doc.id)}
+                                onChange={() =>
+                                  setSelectedDocIds((prev) =>
+                                    prev.includes(doc.id)
+                                      ? prev.filter((id) => id !== doc.id)
+                                      : [...prev, doc.id]
+                                  )
+                                }
+                                className="rounded border-slate-300"
+                              />
+                            </td>
+                          )}
                           <td className="px-4 py-3">
                             <div className="font-medium text-slate-900">{doc.original_filename}</div>
                             <div className="text-[11px] text-slate-500">
@@ -642,10 +756,20 @@ export default function ApplicantDetailPage() {
                                 })
                               }
                               title={doc.is_excluded ? "Restore to Package" : "Exclude from Package"}
-                              className="p-1.5 rounded border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                              className="p-1.5 rounded border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
                             >
                               <XCircle className="h-3.5 w-3.5" />
                             </button>
+                            {canDelete && (
+                              <button
+                                type="button"
+                                onClick={() => deleteDocMutation.mutate(doc.id)}
+                                title="Delete Document"
+                                className="p-1.5 rounded border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );
@@ -659,31 +783,91 @@ export default function ApplicantDetailPage() {
           {/* Export History */}
           {applicant.exports.length > 0 && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <h3 className="text-sm font-semibold text-navy mb-3">Generated Document Packages</h3>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <h3 className="text-sm font-semibold text-navy">
+                  Generated Document Packages ({applicant.exports.length})
+                </h3>
+                {canDelete && (
+                  <div className="flex items-center gap-2.5">
+                    <label className="inline-flex items-center gap-1 text-xs text-slate-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={allExportsSelected}
+                        onChange={() =>
+                          setSelectedExportIds(allExportsSelected ? [] : allExportIds)
+                        }
+                        className="rounded border-slate-300"
+                      />
+                      Select All
+                    </label>
+                    {selectedExportIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => batchDeleteExportsMutation.mutate(selectedExportIds)}
+                        disabled={batchDeleteExportsMutation.isPending}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-red-600 text-white text-xs font-medium hover:bg-red-700"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Delete Selected ({selectedExportIds.length})
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="space-y-2">
                 {applicant.exports.map((exp) => (
                   <div
                     key={exp.id}
                     className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs"
                   >
-                    <div>
-                      <div className="font-mono font-semibold text-navy">{exp.folder_root}</div>
-                      <div className="text-slate-500">
-                        {exp.approved_doc_count} approved docs · {exp.missing_doc_count} missing items
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      {canDelete && (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select export ${exp.folder_root}`}
+                          checked={selectedExportIds.includes(exp.id)}
+                          onChange={() =>
+                            setSelectedExportIds((prev) =>
+                              prev.includes(exp.id)
+                                ? prev.filter((id) => id !== exp.id)
+                                : [...prev, exp.id]
+                            )
+                          }
+                          className="rounded border-slate-300 shrink-0"
+                        />
+                      )}
+                      <div className="min-w-0">
+                        <div className="font-mono font-semibold text-navy truncate">{exp.folder_root}</div>
+                        <div className="text-slate-500">
+                          {exp.approved_doc_count} approved docs · {exp.missing_doc_count} missing items
+                        </div>
                       </div>
                     </div>
-                    <button
-                      onClick={() =>
-                        downloadAuthorizedFile(
-                          exp.download_url,
-                          `${applicant.application_reference}_ORGANISED_DOCUMENTS.zip`
-                        )
-                      }
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white font-medium hover:bg-brand-light"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      Download ZIP
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() =>
+                          downloadAuthorizedFile(
+                            exp.download_url,
+                            `${applicant.application_reference}_ORGANISED_DOCUMENTS.zip`
+                          )
+                        }
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white font-medium hover:bg-brand-light"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download ZIP
+                      </button>
+                      {canDelete && (
+                        <button
+                          type="button"
+                          onClick={() => deleteExportMutation.mutate(exp.id)}
+                          title="Delete Export Package"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 font-medium hover:bg-red-100"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -719,6 +903,17 @@ export default function ApplicantDetailPage() {
                   <Download className="h-3.5 w-3.5" />
                   Download Renamed
                 </button>
+                {canDelete && (
+                  <button
+                    type="button"
+                    onClick={() => deleteDocMutation.mutate(previewDoc.id)}
+                    disabled={deleteDocMutation.isPending}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs font-medium hover:bg-red-100"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </button>
+                )}
                 <button
                   onClick={() => setPreviewDoc(null)}
                   className="px-3 py-1 rounded-lg border border-slate-300 text-xs font-medium"

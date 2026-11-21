@@ -1,14 +1,27 @@
 """Background document processing batch orchestration, status polling, and retry endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import desc, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import delete, desc, select, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.core.deps import ROLE_ADMIN, ROLE_OFFICER, ROLE_SUPER_ADMIN, ROLE_VIEWER, ensure_applicant_access, require_roles
-from app.models.entities import Applicant, DocumentType, ProcessingJob, UploadBatch, UploadedDocument, User
+from app.models.entities import (
+    Applicant,
+    ApplicantDocumentStatus,
+    DocumentType,
+    ProcessedDocument,
+    ProcessingJob,
+    UploadBatch,
+    UploadedDocument,
+    User,
+)
+from app.schemas.common import BatchDeleteRequest, BatchDeleteResponse, MessageResponse
 from app.schemas.documents import BatchStartRequest, BatchStatusRead, ProcessingJobRead
 from app.api.routes.documents import _serialize_document
+from app.services.audit_service import record_audit_event
+from app.services.checklist_service import sync_applicant_checklist_and_naming
+from app.storage.service import get_storage_backend
 from app.workers.tasks import dispatch_batch_processing
 
 router = APIRouter(prefix="/processing", tags=["Processing Jobs"])
@@ -188,3 +201,113 @@ def retry_failed_in_batch(
 
     task_id = dispatch_batch_processing(batch.id, sync=sync)
     return {"batch_id": batch.id, "task_id": task_id, "retried_jobs": len(jobs)}
+
+
+def _delete_upload_batch(db: Session, batch: UploadBatch) -> str:
+    """Delete a processing batch, its documents, jobs, and stored objects."""
+    applicant_id = batch.applicant_id
+    doc_ids = [d.id for d in batch.documents]
+    if doc_ids:
+        db.execute(
+            update(ApplicantDocumentStatus)
+            .where(ApplicantDocumentStatus.matched_document_id.in_(doc_ids))
+            .values(matched_document_id=None)
+        )
+        db.execute(
+            update(UploadedDocument)
+            .where(UploadedDocument.duplicate_of_id.in_(doc_ids))
+            .values(duplicate_of_id=None, is_duplicate=False)
+        )
+    storage = get_storage_backend()
+    for d in batch.documents:
+        try:
+            storage.delete(d.storage_key)
+        except Exception:
+            pass
+    db.execute(delete(ProcessingJob).where(ProcessingJob.batch_id == batch.id))
+    db.execute(delete(ProcessedDocument).where(ProcessedDocument.batch_id == batch.id))
+    db.delete(batch)
+    db.flush()
+    return applicant_id
+
+
+@router.post("/batches/batch-delete", response_model=BatchDeleteResponse)
+def batch_delete_batches(
+    payload: BatchDeleteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
+) -> BatchDeleteResponse:
+    """Delete multiple processing batches and re-sync affected applicant checklists."""
+    if not payload.ids:
+        return BatchDeleteResponse(message="No batches selected.", deleted_count=0, deleted_ids=[])
+
+    batches = (
+        db.scalars(
+            select(UploadBatch)
+            .options(joinedload(UploadBatch.applicant), joinedload(UploadBatch.documents))
+            .where(UploadBatch.id.in_(payload.ids))
+        )
+        .unique()
+        .all()
+    )
+    for b in batches:
+        if b.applicant:
+            ensure_applicant_access(b.applicant, current_user)
+
+    deleted_ids: list[str] = []
+    affected_applicants: set[str] = set()
+    for b in batches:
+        deleted_ids.append(b.id)
+        affected_applicants.add(_delete_upload_batch(db, b))
+
+    for app_id in affected_applicants:
+        sync_applicant_checklist_and_naming(db, app_id)
+
+    record_audit_event(
+        db,
+        action="BATCHES_DELETED",
+        entity_type="upload_batch",
+        actor=current_user,
+        metadata={"deleted_count": len(deleted_ids), "batch_ids": deleted_ids},
+        request=request,
+    )
+    db.commit()
+    return BatchDeleteResponse(
+        message=f"Deleted {len(deleted_ids)} batch(es).",
+        deleted_count=len(deleted_ids),
+        deleted_ids=deleted_ids,
+    )
+
+
+@router.delete("/batches/{batch_id}", response_model=MessageResponse)
+def delete_batch(
+    batch_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
+) -> MessageResponse:
+    """Delete a single processing batch and all its uploaded documents."""
+    batch = db.scalar(
+        select(UploadBatch)
+        .options(joinedload(UploadBatch.applicant), joinedload(UploadBatch.documents))
+        .where(UploadBatch.id == batch_id)
+    )
+    if not batch:
+        raise HTTPException(status_code=404, detail="Upload batch not found.")
+    if batch.applicant:
+        ensure_applicant_access(batch.applicant, current_user)
+
+    applicant_id = _delete_upload_batch(db, batch)
+    sync_applicant_checklist_and_naming(db, applicant_id)
+    record_audit_event(
+        db,
+        action="BATCH_DELETED",
+        entity_type="upload_batch",
+        entity_id=batch_id,
+        actor=current_user,
+        metadata={"applicant_id": applicant_id},
+        request=request,
+    )
+    db.commit()
+    return MessageResponse(message="Deleted processing batch.")
