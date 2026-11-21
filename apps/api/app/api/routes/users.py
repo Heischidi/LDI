@@ -11,6 +11,7 @@ from app.core.security import hash_password
 from app.models.entities import Role, User
 from app.schemas.auth import UserCreateRequest, UserSummary, UserUpdateRequest
 from app.services.audit_service import record_audit_event
+from app.services.seed_service import generate_unique_username
 
 router = APIRouter(prefix="/users", tags=["Staff Management"])
 
@@ -39,7 +40,20 @@ def create_staff_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN)),
 ) -> UserSummary:
-    if db.scalar(select(User).where(User.email == payload.email.lower().strip())):
+    username = (
+        payload.username.strip().lower()
+        if payload.username and payload.username.strip()
+        else generate_unique_username(db, payload.first_name, payload.last_name)
+    )
+    if db.scalar(select(User).where(User.username == username)):
+        raise HTTPException(status_code=400, detail="Username is already taken.")
+
+    email_val = (
+        payload.email.lower().strip()
+        if payload.email and payload.email.strip()
+        else f"{username}@leaders.edu"
+    )
+    if db.scalar(select(User).where(User.email == email_val)):
         raise HTTPException(status_code=400, detail="Email address is already registered.")
     role = db.scalar(
         select(Role)
@@ -50,7 +64,8 @@ def create_staff_user(
         raise HTTPException(status_code=400, detail="Invalid role specified.")
 
     user = User(
-        email=payload.email.lower().strip(),
+        username=username,
+        email=email_val,
         hashed_password=hash_password(payload.password),
         first_name=payload.first_name.strip(),
         last_name=payload.last_name.strip(),
@@ -66,7 +81,7 @@ def create_staff_user(
         entity_type="user",
         entity_id=user.id,
         actor=current_user,
-        metadata={"email": user.email, "role": role.name},
+        metadata={"username": user.username, "email": user.email, "role": role.name},
         request=request,
     )
     db.commit()
@@ -98,6 +113,10 @@ def update_staff_user(
         user.first_name = payload.first_name.strip()
     if payload.last_name is not None:
         user.last_name = payload.last_name.strip()
+    if payload.first_name is not None or payload.last_name is not None or not user.username:
+        user.username = generate_unique_username(
+            db, user.first_name, user.last_name, exclude_user_id=user.id
+        )
     if payload.phone_number is not None:
         user.phone_number = payload.phone_number
     if payload.is_active is not None:

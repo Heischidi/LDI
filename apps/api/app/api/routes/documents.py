@@ -9,7 +9,14 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import ROLE_ADMIN, ROLE_OFFICER, ROLE_SUPER_ADMIN, ROLE_VIEWER, require_roles
+from app.core.deps import (
+    ROLE_ADMIN,
+    ROLE_OFFICER,
+    ROLE_SUPER_ADMIN,
+    ROLE_VIEWER,
+    ensure_applicant_access,
+    require_roles,
+)
 from app.document_processing.mime_validator import UploadValidationError, validate_and_unpack_upload
 from app.models.entities import (
     Applicant,
@@ -109,6 +116,7 @@ async def upload_documents(
     applicant = db.scalar(select(Applicant).where(Applicant.id == applicant_id))
     if not applicant:
         raise HTTPException(status_code=404, detail="Applicant not found.")
+    ensure_applicant_access(applicant, current_user)
 
     if not files:
         raise HTTPException(status_code=400, detail="At least one file must be uploaded.")
@@ -224,11 +232,12 @@ def list_processed_documents(
     approved_only: bool = False,
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER)),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER)),
 ) -> list[dict]:
     """List documents with original-to-standardised filename mapping for Processed Documents workspace."""
     stmt = (
         select(UploadedDocument)
+        .join(Applicant, UploadedDocument.applicant_id == Applicant.id)
         .options(
             joinedload(UploadedDocument.applicant),
             joinedload(UploadedDocument.classifications),
@@ -239,6 +248,8 @@ def list_processed_documents(
     )
     if applicant_id:
         stmt = stmt.where(UploadedDocument.applicant_id == applicant_id)
+    if not (current_user.role and current_user.role.name == ROLE_SUPER_ADMIN):
+        stmt = stmt.where(Applicant.assigned_officer_id == current_user.id)
 
     docs = db.scalars(stmt).unique().all()
     results = []
@@ -280,6 +291,7 @@ def get_document(
     doc = db.scalar(
         select(UploadedDocument)
         .options(
+            joinedload(UploadedDocument.applicant),
             joinedload(UploadedDocument.classifications),
             joinedload(UploadedDocument.extracted_data),
             joinedload(UploadedDocument.processed_document),
@@ -288,6 +300,8 @@ def get_document(
     )
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
+    if doc.applicant:
+        ensure_applicant_access(doc.applicant, current_user)
 
     doc_types = {dt.code: dt.name for dt in db.scalars(select(DocumentType)).all()}
     record_audit_event(
@@ -313,11 +327,16 @@ def preview_document(
     """Serve private document bytes securely to authorized staff using the standardized filename when available."""
     doc = db.scalar(
         select(UploadedDocument)
-        .options(joinedload(UploadedDocument.processed_document))
+        .options(
+            joinedload(UploadedDocument.applicant),
+            joinedload(UploadedDocument.processed_document),
+        )
         .where(UploadedDocument.id == document_id)
     )
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
+    if doc.applicant:
+        ensure_applicant_access(doc.applicant, current_user)
 
     storage = get_storage_backend()
     try:
@@ -356,8 +375,18 @@ def preview_document(
 def classify_document_endpoint(
     document_id: str,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
 ) -> DocumentDetailRead:
+    existing = db.scalar(
+        select(UploadedDocument)
+        .options(joinedload(UploadedDocument.applicant))
+        .where(UploadedDocument.id == document_id)
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if existing.applicant:
+        ensure_applicant_access(existing.applicant, current_user)
+
     doc = process_single_document(db, document_id)
     sync_applicant_checklist_and_naming(db, doc.applicant_id)
     db.commit()
@@ -368,8 +397,18 @@ def classify_document_endpoint(
 def reprocess_document_endpoint(
     document_id: str,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
 ) -> DocumentDetailRead:
+    existing = db.scalar(
+        select(UploadedDocument)
+        .options(joinedload(UploadedDocument.applicant))
+        .where(UploadedDocument.id == document_id)
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if existing.applicant:
+        ensure_applicant_access(existing.applicant, current_user)
+
     doc = process_single_document(db, document_id)
     sync_applicant_checklist_and_naming(db, doc.applicant_id)
     db.commit()
@@ -402,6 +441,7 @@ def review_or_correct_classification(
     doc = db.scalar(
         select(UploadedDocument)
         .options(
+            joinedload(UploadedDocument.applicant),
             joinedload(UploadedDocument.classifications),
             joinedload(UploadedDocument.extracted_data),
             joinedload(UploadedDocument.processed_document),
@@ -410,6 +450,8 @@ def review_or_correct_classification(
     )
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
+    if doc.applicant:
+        ensure_applicant_access(doc.applicant, current_user)
 
     cls = next((c for c in doc.classifications if c.is_current), None)
     if not cls:
@@ -509,11 +551,16 @@ def approve_document(
     """Approve an individual document classification for inclusion in the final organised package."""
     doc = db.scalar(
         select(UploadedDocument)
-        .options(joinedload(UploadedDocument.classifications))
+        .options(
+            joinedload(UploadedDocument.applicant),
+            joinedload(UploadedDocument.classifications),
+        )
         .where(UploadedDocument.id == document_id)
     )
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
+    if doc.applicant:
+        ensure_applicant_access(doc.applicant, current_user)
 
     cls = next((c for c in doc.classifications if c.is_current), None)
     if not cls:
@@ -560,6 +607,7 @@ def bulk_approve_high_confidence(
     applicant = db.scalar(select(Applicant).where(Applicant.id == payload.applicant_id))
     if not applicant:
         raise HTTPException(status_code=404, detail="Applicant not found.")
+    ensure_applicant_access(applicant, current_user)
 
     stmt = (
         select(UploadedDocument)

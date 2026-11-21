@@ -18,6 +18,15 @@ from app.core.config import settings
 _REVOKED_JTIS: set[str] = set()
 
 
+def compute_base_username(first_name: str, last_name: str) -> str:
+    """Build deterministic login username: lastname + first two letters of firstname."""
+    clean_last = re.sub(r"[^a-z0-9]", "", last_name.strip().lower())
+    clean_first = re.sub(r"[^a-z0-9]", "", first_name.strip().lower())
+    prefix = clean_last or "officer"
+    suffix = clean_first[:2] or "ld"
+    return f"{prefix}{suffix}"
+
+
 def hash_password(password: str) -> str:
     """Hash a plaintext password using bcrypt."""
     salt = bcrypt.gensalt(rounds=12)

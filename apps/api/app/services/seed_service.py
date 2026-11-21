@@ -2,10 +2,10 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
-from app.core.security import hash_password
+from app.core.security import compute_base_username, hash_password
 from app.models.entities import (
     ApplicationCategory,
     Destination,
@@ -150,8 +150,40 @@ DEFAULT_DOCUMENT_TYPES = [
 ]
 
 
+def generate_unique_username(
+    db: Session,
+    first_name: str,
+    last_name: str,
+    exclude_user_id: str | None = None,
+) -> str:
+    """Return unique username using lastname + first two letters of firstname (suffix if needed)."""
+    base = compute_base_username(first_name, last_name)
+    candidate = base
+    suffix = 2
+    while True:
+        existing = db.scalar(select(User).where(User.username == candidate))
+        if not existing or (exclude_user_id and existing.id == exclude_user_id):
+            return candidate
+        candidate = f"{base}{suffix}"
+        suffix += 1
+
+
+def _ensure_user_username_column(db: Session) -> None:
+    """Safely add users.username column on existing databases if not yet migrated."""
+    inspector = inspect(db.get_bind())
+    if "users" not in inspector.get_table_names():
+        return
+    cols = {col["name"] for col in inspector.get_columns("users")}
+    if "username" not in cols:
+        db.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR(100)"))
+        db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username)"))
+        db.commit()
+
+
 def seed_initial_data(db: Session) -> None:
     """Populate initial RBAC roles, staff accounts, reference data, and requirement checklists."""
+    _ensure_user_username_column(db)
+
     # 1. Permissions & Roles
     perm_map: dict[str, Permission] = {}
     for code, module, desc in DEFAULT_PERMISSIONS:
@@ -187,8 +219,10 @@ def seed_initial_data(db: Session) -> None:
     for email, pw, fname, lname, role_name in default_users:
         existing = db.scalar(select(User).where(User.email == email))
         if not existing:
+            uname = generate_unique_username(db, fname, lname)
             db.add(
                 User(
+                    username=uname,
                     email=email,
                     hashed_password=hash_password(pw),
                     first_name=fname,
@@ -197,6 +231,14 @@ def seed_initial_data(db: Session) -> None:
                     is_active=True,
                 )
             )
+            db.flush()
+        elif not existing.username:
+            existing.username = generate_unique_username(db, existing.first_name, existing.last_name, exclude_user_id=existing.id)
+    # Backfill usernames on any legacy staff rows
+    for staff_user in db.scalars(select(User).where(User.username.is_(None))).all():
+        staff_user.username = generate_unique_username(
+            db, staff_user.first_name, staff_user.last_name, exclude_user_id=staff_user.id
+        )
     db.flush()
 
     # 3. Destinations

@@ -120,3 +120,99 @@ def test_rbac_enforcement(client: TestClient):
     deact = client.patch(f"/api/users/{staff_id}", json={"is_active": False}, headers=super_hdrs)
     assert deact.status_code == 200
     assert deact.json()["is_active"] is False
+
+
+def test_officer_username_creation_login_and_client_isolation(client: TestClient):
+    super_hdrs = auth_headers(client, "superadmin@leaders.edu", "LeadersAdmin!2026")
+
+    # Super Admin creates two officers using only First Name, Last Name, and Password
+    off1_resp = client.post(
+        "/api/users",
+        json={
+            "first_name": "Chidi",
+            "last_name": "Ejikonye",
+            "password": "OfficerPass1",
+        },
+        headers=super_hdrs,
+    )
+    assert off1_resp.status_code == 201
+    off1 = off1_resp.json()
+    assert off1["username"] == "ejikonyech"
+    assert off1["email"] == "ejikonyech@leaders.edu"
+    assert off1["role"] == "OFFICER"
+
+    off2_resp = client.post(
+        "/api/users",
+        json={
+            "first_name": "Kemi",
+            "last_name": "Balogun",
+            "password": "OfficerPass2",
+        },
+        headers=super_hdrs,
+    )
+    assert off2_resp.status_code == 201
+    assert off2_resp.json()["username"] == "balogunke"
+
+    # Both officers log in using their auto-generated username + password
+    login1 = client.post("/api/auth/login", json={"email": "ejikonyech", "password": "OfficerPass1"})
+    assert login1.status_code == 200
+    off1_hdrs = {"Authorization": f"Bearer {login1.json()['access_token']}"}
+
+    login2 = client.post("/api/auth/login", json={"email": "balogunke", "password": "OfficerPass2"})
+    assert login2.status_code == 200
+    off2_hdrs = {"Authorization": f"Bearer {login2.json()['access_token']}"}
+
+    # Officer 1 creates a client
+    dests = {d["code"]: d for d in client.get("/api/reference/destinations", headers=off1_hdrs).json()}
+    purps = {p["code"]: p for p in client.get("/api/reference/purposes", headers=off1_hdrs).json()}
+    cats = {c["code"]: c for c in client.get("/api/reference/categories", headers=off1_hdrs).json()}
+
+    created = client.post(
+        "/api/applicants",
+        json={
+            "first_name": "Ada",
+            "last_name": "Nwachukwu",
+            "email": "ada.nwachukwu@example.com",
+            "phone_number": "+2348011112222",
+            "nationality": "Nigerian",
+            "destination_id": dests["CA"]["id"],
+            "purpose_id": purps["STUDY"]["id"],
+            "category_id": cats["STUDENT_VISA"]["id"],
+        },
+        headers=off1_hdrs,
+    )
+    assert created.status_code == 201
+    applicant_id = created.json()["id"]
+
+    # Officer 1 sees their own client
+    list1 = client.get("/api/applicants", headers=off1_hdrs)
+    assert list1.status_code == 200
+    assert list1.json()["total"] == 1
+
+    # Officer 2 cannot see or access Officer 1's client anywhere
+    list2 = client.get("/api/applicants", headers=off2_hdrs)
+    assert list2.status_code == 200
+    assert list2.json()["total"] == 0
+
+    docs2 = client.get("/api/documents", headers=off2_hdrs)
+    assert docs2.status_code == 200
+    assert docs2.json() == []
+
+    assert client.get(f"/api/applicants/{applicant_id}", headers=off2_hdrs).status_code == 403
+    assert client.get(f"/api/applicants/{applicant_id}/report", headers=off2_hdrs).status_code == 403
+    assert client.post(f"/api/applicants/{applicant_id}/export", headers=off2_hdrs).status_code == 403
+    assert (
+        client.patch(
+            f"/api/applicants/{applicant_id}",
+            json={"nationality": "Ghanaian"},
+            headers=off2_hdrs,
+        ).status_code
+        == 403
+    )
+
+    # Super Admin can log in by username and see all officers' clients
+    super_by_username = auth_headers(client, "okaforad", "LeadersAdmin!2026")
+    list_super = client.get("/api/applicants", headers=super_by_username)
+    assert list_super.status_code == 200
+    assert list_super.json()["total"] >= 1
+    assert client.get(f"/api/applicants/{applicant_id}", headers=super_by_username).status_code == 200

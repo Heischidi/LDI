@@ -29,53 +29,81 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 @router.get("/metrics", response_model=DashboardMetrics)
 def get_dashboard_metrics(
     db: Session = Depends(get_db),
-    _user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER)),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER)),
 ) -> DashboardMetrics:
+    is_super_admin = bool(current_user.role and current_user.role.name == ROLE_SUPER_ADMIN)
+
+    def _scope_app(stmt):
+        return stmt if is_super_admin else stmt.where(Applicant.assigned_officer_id == current_user.id)
+
     total_applicants = db.scalar(
-        select(func.count(Applicant.id)).where(Applicant.is_archived.is_(False))
+        _scope_app(select(func.count(Applicant.id)).where(Applicant.is_archived.is_(False)))
     ) or 0
 
     total_documents_processed = db.scalar(
-        select(func.count(UploadedDocument.id)).where(
-            UploadedDocument.processing_status.in_(["AWAITING_REVIEW", "APPROVED", "COMPLETED"])
+        _scope_app(
+            select(func.count(UploadedDocument.id))
+            .join(Applicant, UploadedDocument.applicant_id == Applicant.id)
+            .where(UploadedDocument.processing_status.in_(["AWAITING_REVIEW", "APPROVED", "COMPLETED"]))
         )
     ) or 0
 
     applications_processing = db.scalar(
-        select(func.count(UploadBatch.id)).where(
-            UploadBatch.status.in_(["UPLOADED", "QUEUED", "PROCESSING"])
+        _scope_app(
+            select(func.count(UploadBatch.id))
+            .join(Applicant, UploadBatch.applicant_id == Applicant.id)
+            .where(UploadBatch.status.in_(["UPLOADED", "QUEUED", "PROCESSING"]))
         )
     ) or 0
 
     completed_batches = db.scalar(
-        select(func.count(UploadBatch.id)).where(
-            UploadBatch.status.in_(["AWAITING_REVIEW", "APPROVED", "COMPLETED"])
+        _scope_app(
+            select(func.count(UploadBatch.id))
+            .join(Applicant, UploadBatch.applicant_id == Applicant.id)
+            .where(UploadBatch.status.in_(["AWAITING_REVIEW", "APPROVED", "COMPLETED"]))
         )
     ) or 0
 
-    apps_with_missing_sub = (
+    apps_with_missing_sub = _scope_app(
         select(ApplicantDocumentStatus.applicant_id)
+        .join(Applicant, ApplicantDocumentStatus.applicant_id == Applicant.id)
         .where(ApplicantDocumentStatus.status == "MISSING")
         .distinct()
     )
     applications_with_missing_docs = len(db.scalars(apps_with_missing_sub).all())
 
     documents_awaiting_review = db.scalar(
-        select(func.count(DocumentClassification.id)).where(
-            DocumentClassification.is_current.is_(True),
-            DocumentClassification.status.in_(["PENDING_REVIEW", "MANUAL_REQUIRED", "AUTO_PREPARED"]),
+        _scope_app(
+            select(func.count(DocumentClassification.id))
+            .join(UploadedDocument, DocumentClassification.uploaded_document_id == UploadedDocument.id)
+            .join(Applicant, UploadedDocument.applicant_id == Applicant.id)
+            .where(
+                DocumentClassification.is_current.is_(True),
+                DocumentClassification.status.in_(["PENDING_REVIEW", "MANUAL_REQUIRED", "AUTO_PREPARED"]),
+            )
         )
     ) or 0
 
     failed_processing_jobs = db.scalar(
-        select(func.count(ProcessingJob.id)).where(ProcessingJob.status == "FAILED")
+        _scope_app(
+            select(func.count(ProcessingJob.id))
+            .join(UploadBatch, ProcessingJob.batch_id == UploadBatch.id)
+            .join(Applicant, UploadBatch.applicant_id == Applicant.id)
+            .where(ProcessingJob.status == "FAILED")
+        )
     ) or 0
 
-    total_batches = db.scalar(select(func.count(UploadBatch.id))) or 0
+    total_batches = db.scalar(
+        _scope_app(select(func.count(UploadBatch.id)).join(Applicant, UploadBatch.applicant_id == Applicant.id))
+    ) or 0
     completion_rate = round((completed_batches / total_batches) * 100.0, 1) if total_batches else 0.0
 
     # Documents over time (grouped by date string)
-    docs_dates = db.scalars(select(UploadedDocument.created_at)).all()
+    docs_dates = db.scalars(
+        _scope_app(
+            select(UploadedDocument.created_at).join(Applicant, UploadedDocument.applicant_id == Applicant.id)
+        )
+    ).all()
     date_buckets: dict[str, int] = defaultdict(int)
     for dt in docs_dates:
         date_buckets[dt.strftime("%Y-%m-%d")] += 1
@@ -85,9 +113,11 @@ def get_dashboard_metrics(
 
     # Applicants by destination
     dest_rows = db.execute(
-        select(Destination.name, func.count(Applicant.id))
-        .join(Applicant, Applicant.destination_id == Destination.id)
-        .where(Applicant.is_archived.is_(False))
+        _scope_app(
+            select(Destination.name, func.count(Applicant.id))
+            .join(Applicant, Applicant.destination_id == Destination.id)
+            .where(Applicant.is_archived.is_(False))
+        )
         .group_by(Destination.name)
         .order_by(desc(func.count(Applicant.id)))
     ).all()
@@ -95,9 +125,11 @@ def get_dashboard_metrics(
 
     # Applicants by travel purpose
     purp_rows = db.execute(
-        select(TravelPurpose.name, func.count(Applicant.id))
-        .join(Applicant, Applicant.purpose_id == TravelPurpose.id)
-        .where(Applicant.is_archived.is_(False))
+        _scope_app(
+            select(TravelPurpose.name, func.count(Applicant.id))
+            .join(Applicant, Applicant.purpose_id == TravelPurpose.id)
+            .where(Applicant.is_archived.is_(False))
+        )
         .group_by(TravelPurpose.name)
         .order_by(desc(func.count(Applicant.id)))
     ).all()
@@ -105,9 +137,12 @@ def get_dashboard_metrics(
 
     # Missing document statistics
     missing_rows = db.execute(
-        select(DocumentType.name, func.count(ApplicantDocumentStatus.id))
-        .join(ApplicantDocumentStatus, ApplicantDocumentStatus.document_type_id == DocumentType.id)
-        .where(ApplicantDocumentStatus.status == "MISSING")
+        _scope_app(
+            select(DocumentType.name, func.count(ApplicantDocumentStatus.id))
+            .join(ApplicantDocumentStatus, ApplicantDocumentStatus.document_type_id == DocumentType.id)
+            .join(Applicant, ApplicantDocumentStatus.applicant_id == Applicant.id)
+            .where(ApplicantDocumentStatus.status == "MISSING")
+        )
         .group_by(DocumentType.name)
         .order_by(desc(func.count(ApplicantDocumentStatus.id)))
         .limit(8)
@@ -117,9 +152,11 @@ def get_dashboard_metrics(
     # Recent applicants
     recent_apps = (
         db.scalars(
-            select(Applicant)
-            .options(joinedload(Applicant.destination), joinedload(Applicant.purpose))
-            .where(Applicant.is_archived.is_(False))
+            _scope_app(
+                select(Applicant)
+                .options(joinedload(Applicant.destination), joinedload(Applicant.purpose))
+                .where(Applicant.is_archived.is_(False))
+            )
             .order_by(desc(Applicant.created_at))
             .limit(6)
         )
@@ -140,9 +177,10 @@ def get_dashboard_metrics(
     ]
 
     # Recent processing / audit activity
-    recent_logs = db.scalars(
-        select(AuditLog).order_by(desc(AuditLog.created_at)).limit(10)
-    ).all()
+    audit_stmt = select(AuditLog)
+    if not is_super_admin:
+        audit_stmt = audit_stmt.where(AuditLog.actor_user_id == current_user.id)
+    recent_logs = db.scalars(audit_stmt.order_by(desc(AuditLog.created_at)).limit(10)).all()
     recent_activity = [
         {
             "id": log.id,
@@ -155,11 +193,16 @@ def get_dashboard_metrics(
     ]
 
     # Officer activity stats
-    officer_rows = db.execute(
+    officer_stmt = (
         select(User.first_name, User.last_name, User.email, func.count(Applicant.id))
         .join(Applicant, Applicant.assigned_officer_id == User.id)
-        .group_by(User.id, User.first_name, User.last_name, User.email)
-        .order_by(desc(func.count(Applicant.id)))
+    )
+    if not is_super_admin:
+        officer_stmt = officer_stmt.where(User.id == current_user.id)
+    officer_rows = db.execute(
+        officer_stmt.group_by(User.id, User.first_name, User.last_name, User.email).order_by(
+            desc(func.count(Applicant.id))
+        )
     ).all()
     officer_activity = [
         {"name": f"{fn} {ln}", "email": em, "assigned_applicants": cnt}

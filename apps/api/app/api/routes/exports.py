@@ -7,7 +7,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
-from app.core.deps import ROLE_ADMIN, ROLE_OFFICER, ROLE_SUPER_ADMIN, ROLE_VIEWER, require_roles
+from app.core.deps import ROLE_ADMIN, ROLE_OFFICER, ROLE_SUPER_ADMIN, ROLE_VIEWER, ensure_applicant_access, require_roles
 from app.core.security import verify_signed_token
 from app.models.entities import (
     Applicant,
@@ -35,6 +35,10 @@ def generate_applicant_export(
     current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
 ) -> dict:
     """Build organized folder ZIP (approved documents + ORIGINAL_DOCUMENTS + PROCESSING_REPORT.pdf)."""
+    applicant = db.scalar(select(Applicant).where(Applicant.id == applicant_id))
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant not found.")
+    ensure_applicant_access(applicant, current_user)
     try:
         pkg = create_applicant_export_package(db, applicant_id=applicant_id, actor=current_user)
     except ValueError as exc:
@@ -59,9 +63,14 @@ def generate_applicant_export(
 def get_applicant_processing_report(
     applicant_id: str,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER)),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER)),
 ) -> Response:
     """Return live PDF processing report for an applicant."""
+    applicant_check = db.scalar(select(Applicant).where(Applicant.id == applicant_id))
+    if not applicant_check:
+        raise HTTPException(status_code=404, detail="Applicant not found.")
+    ensure_applicant_access(applicant_check, current_user)
+
     sync_applicant_checklist_and_naming(db, applicant_id)
     applicant = db.scalar(
         select(Applicant)
@@ -115,6 +124,8 @@ def download_export_zip(
         raise HTTPException(status_code=404, detail="Export package not found.")
 
     applicant = db.scalar(select(Applicant).where(Applicant.id == pkg.applicant_id))
+    if applicant:
+        ensure_applicant_access(applicant, current_user)
     storage = get_storage_backend()
     try:
         zip_bytes = storage.get_bytes(pkg.zip_storage_key)

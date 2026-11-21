@@ -6,13 +6,14 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials
 from jose import JWTError
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import bearer_scheme, get_current_user
 from app.core.security import (
+    compute_base_username,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -40,6 +41,7 @@ def _to_user_summary(user: User) -> UserSummary:
     perms = [p.code for p in user.role.permissions] if user.role else []
     return UserSummary(
         id=user.id,
+        username=user.username or compute_base_username(user.first_name, user.last_name),
         email=user.email,
         first_name=user.first_name,
         last_name=user.last_name,
@@ -58,11 +60,17 @@ def login(
     request: Request,
     db: Session = Depends(get_db),
 ) -> TokenResponse:
-    """Authenticate staff account with lockout protection against brute-force attempts."""
+    """Authenticate staff account via username or email with lockout protection."""
+    identifier = (payload.username or payload.email).strip().lower()
     user = db.scalar(
         select(User)
         .options(joinedload(User.role).joinedload(Role.permissions))
-        .where(User.email == payload.email.lower().strip())
+        .where(
+            or_(
+                func.lower(User.username) == identifier,
+                func.lower(User.email) == identifier,
+            )
+        )
     )
     now = datetime.now(timezone.utc)
 

@@ -2,6 +2,7 @@ export type UserRole = "SUPER_ADMIN" | "ADMIN" | "OFFICER" | "VIEWER";
 
 export interface UserSummary {
   id: string;
+  username?: string | null;
   email: string;
   first_name: string;
   last_name: string;

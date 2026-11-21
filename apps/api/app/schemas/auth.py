@@ -6,7 +6,8 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str = Field(min_length=1)
+    username: str | None = None
     password: str = Field(min_length=1)
 
 
@@ -27,7 +28,8 @@ class UserSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    email: EmailStr
+    username: str | None = None
+    email: str
     first_name: str
     last_name: str
     phone_number: str | None = None
@@ -47,12 +49,13 @@ class TokenResponse(BaseModel):
 
 
 class UserCreateRequest(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    email: str | None = None
+    username: str | None = None
+    password: str = Field(min_length=4, max_length=128)
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
     phone_number: str | None = None
-    role_name: str = Field(pattern="^(SUPER_ADMIN|ADMIN|OFFICER|VIEWER)$")
+    role_name: str = Field(default="OFFICER", pattern="^(SUPER_ADMIN|ADMIN|OFFICER|VIEWER)$")
     is_active: bool = True
 
 
@@ -62,4 +65,4 @@ class UserUpdateRequest(BaseModel):
     phone_number: str | None = None
     role_name: str | None = Field(default=None, pattern="^(SUPER_ADMIN|ADMIN|OFFICER|VIEWER)$")
     is_active: bool | None = None
-    password: str | None = Field(default=None, min_length=8, max_length=128)
+    password: str | None = Field(default=None, min_length=4, max_length=128)

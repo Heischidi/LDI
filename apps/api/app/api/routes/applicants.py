@@ -8,7 +8,15 @@ from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
-from app.core.deps import ROLE_ADMIN, ROLE_OFFICER, ROLE_SUPER_ADMIN, ROLE_VIEWER, get_current_user, require_roles
+from app.core.deps import (
+    ROLE_ADMIN,
+    ROLE_OFFICER,
+    ROLE_SUPER_ADMIN,
+    ROLE_VIEWER,
+    ensure_applicant_access,
+    get_current_user,
+    require_roles,
+)
 from app.core.security import decrypt_sensitive_value, encrypt_sensitive_value
 from app.models.entities import (
     Applicant,
@@ -261,7 +269,7 @@ def list_applicants(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
-    _user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER)),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER)),
 ) -> PaginatedResponse[ApplicantSummary]:
     stmt = (
         select(Applicant)
@@ -277,6 +285,8 @@ def list_applicants(
     count_stmt = select(func.count(Applicant.id))
 
     filters = []
+    if not (current_user.role and current_user.role.name == ROLE_SUPER_ADMIN):
+        filters.append(Applicant.assigned_officer_id == current_user.id)
     if not include_archived:
         filters.append(Applicant.is_archived.is_(False))
     if search:
@@ -297,7 +307,7 @@ def list_applicants(
         filters.append(Applicant.category_id == category_id)
     if status_filter:
         filters.append(Applicant.status == status_filter)
-    if assigned_officer_id:
+    if assigned_officer_id and (current_user.role and current_user.role.name == ROLE_SUPER_ADMIN):
         filters.append(Applicant.assigned_officer_id == assigned_officer_id)
 
     for flt in filters:
@@ -348,6 +358,7 @@ def create_applicant(
         else None
     )
 
+    is_super_admin = bool(current_user.role and current_user.role.name == ROLE_SUPER_ADMIN)
     applicant = Applicant(
         application_reference=_generate_app_reference(db),
         first_name=payload.first_name.strip(),
@@ -363,7 +374,9 @@ def create_applicant(
         destination_id=dest.id,
         purpose_id=purpose.id,
         category_id=cat.id,
-        assigned_officer_id=payload.assigned_officer_id or current_user.id,
+        assigned_officer_id=(
+            (payload.assigned_officer_id or current_user.id) if is_super_admin else current_user.id
+        ),
         requirement_version_id=active_ver.id if active_ver else None,
         status="DRAFT",
     )
@@ -387,14 +400,14 @@ def create_applicant(
         request=request,
     )
     db.commit()
-    return get_applicant_detail(applicant.id, db=db, _user=current_user)
+    return get_applicant_detail(applicant.id, db=db, current_user=current_user)
 
 
 @router.get("/applicants/{applicant_id}", response_model=ApplicantDetail)
 def get_applicant_detail(
     applicant_id: str,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER)),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER, ROLE_VIEWER)),
 ) -> ApplicantDetail:
     app = db.scalar(
         select(Applicant)
@@ -414,6 +427,7 @@ def get_applicant_detail(
     )
     if not app:
         raise HTTPException(status_code=404, detail="Applicant not found.")
+    ensure_applicant_access(app, current_user)
 
     summary = _serialize_applicant_summary(app)
     doc_lookup = {d.id: d for d in app.documents}
@@ -558,6 +572,11 @@ def send_applicant_stage_update(
     current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
 ) -> StageUpdateRead:
     """Update applicant stage milestone and dispatch real-time email notification/reminder to client."""
+    existing = db.scalar(select(Applicant).where(Applicant.id == applicant_id))
+    if not existing:
+        raise HTTPException(status_code=404, detail="Applicant not found.")
+    ensure_applicant_access(existing, current_user)
+
     sync_applicant_checklist_and_naming(db, applicant_id)
     app = db.scalar(
         select(Applicant)
@@ -568,6 +587,7 @@ def send_applicant_stage_update(
             joinedload(Applicant.checklist_statuses).joinedload(ApplicantDocumentStatus.document_type),
             joinedload(Applicant.checklist_statuses).joinedload(ApplicantDocumentStatus.document_requirement),
         )
+        .execution_options(populate_existing=True)
         .where(Applicant.id == applicant_id)
     )
     if not app:
@@ -672,6 +692,7 @@ def update_applicant(
     app = db.scalar(select(Applicant).where(Applicant.id == applicant_id))
     if not app:
         raise HTTPException(status_code=404, detail="Applicant not found.")
+    ensure_applicant_access(app, current_user)
 
     updates = payload.model_dump(exclude_unset=True)
     if "passport_number" in updates:
@@ -692,7 +713,7 @@ def update_applicant(
         request=request,
     )
     db.commit()
-    return get_applicant_detail(app.id, db=db, _user=current_user)
+    return get_applicant_detail(app.id, db=db, current_user=current_user)
 
 
 @router.delete("/applicants/{applicant_id}", response_model=MessageResponse)

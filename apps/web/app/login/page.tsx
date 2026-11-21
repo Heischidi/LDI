@@ -9,7 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { ldiApi } from "@/lib/api-client";
 
 const loginSchema = z.object({
-  email: z.string().email("Enter a valid staff email address"),
+  email: z.string().trim().min(1, "Enter your username or staff email"),
   password: z.string().min(1, "Password is required"),
 });
 
@@ -110,13 +110,13 @@ export default function LoginPage() {
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Staff Email
+                  Username or Staff Email
                 </label>
                 <div className="relative">
                   <Mail className="h-4 w-4 text-slate-400 absolute left-3 top-3" />
                   <input
-                    type="email"
-                    placeholder="officer@leaders.edu"
+                    type="text"
+                    placeholder="adeyemitu or officer@leaders.edu"
                     {...register("email")}
                     className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-navy/20 focus:border-navy"
                   />

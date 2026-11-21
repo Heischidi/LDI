@@ -107,3 +107,15 @@ def require_permission(permission_code: str) -> Callable[[User], User]:
         return current_user
 
     return _dependency
+
+
+def ensure_applicant_access(applicant, current_user: User) -> None:
+    """Restrict client records to the assigned officer and Super Administrator."""
+    role_name = current_user.role.name if current_user.role else ""
+    if role_name == ROLE_SUPER_ADMIN:
+        return
+    if getattr(applicant, "assigned_officer_id", None) != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: client details are restricted to the assigned processing officer and Super Administrator.",
+        )

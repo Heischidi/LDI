@@ -18,6 +18,15 @@ export default function StaffManagementPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [roleName, setRoleName] = useState("OFFICER");
+
+  const previewUsername =
+    firstName.trim() && lastName.trim()
+      ? `${lastName.trim().toLowerCase().replace(/[^a-z0-9]/g, "")}${firstName
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "")
+          .slice(0, 2)}`
+      : "";
   const [editingPasswordUserId, setEditingPasswordUserId] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -41,7 +50,9 @@ export default function StaffManagementPage() {
       setFirstName("");
       setLastName("");
       setErrorMsg(null);
-      setStatusMsg(`Created staff account for ${created.email}.`);
+      setStatusMsg(
+        `Created account for ${created.first_name} ${created.last_name} — Login Username: ${created.username}`
+      );
       qc.invalidateQueries({ queryKey: ["staff-users"] });
       qc.invalidateQueries({ queryKey: ["audit-logs"] });
     },
@@ -64,7 +75,7 @@ export default function StaffManagementPage() {
       setEditingPasswordUserId(null);
       setNewPassword("");
       setErrorMsg(null);
-      setStatusMsg(`Password updated for ${updated.email}.`);
+      setStatusMsg(`Password updated for ${updated.username || updated.email}.`);
       qc.invalidateQueries({ queryKey: ["staff-users"] });
       qc.invalidateQueries({ queryKey: ["audit-logs"] });
     },
@@ -74,17 +85,29 @@ export default function StaffManagementPage() {
   return (
     <AppShell
       title="Staff Management & Security Audit Trail"
-      subtitle="Administer role-based access accounts and inspect immutable security audit logs."
+      subtitle="Create individual Processing Officer accounts with isolated client access and inspect audit logs."
     >
       <div className="space-y-6">
         {isSuperAdmin && (
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-            <h3 className="text-sm font-semibold text-navy mb-3 flex items-center gap-2">
-              <UserPlus className="h-4 w-4 text-brand" />
-              Create Staff Account
-            </h3>
+          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-navy flex items-center gap-2">
+                <UserPlus className="h-4 w-4 text-brand" />
+                Create Processing Officer Account
+              </h3>
+              {previewUsername && (
+                <span className="text-xs text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1 rounded-full">
+                  Login Username:{" "}
+                  <strong className="font-mono text-navy">{previewUsername}</strong>
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500">
+              Enter First Name, Last Name, and Account Password. Username is generated automatically
+              (<code className="font-mono text-navy">lastname + first 2 letters of firstname</code>), and each officer only sees their own clients (Super Admin sees all).
+            </p>
             {errorMsg && (
-              <div className="mb-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
+              <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
                 {errorMsg}
               </div>
             )}
@@ -102,17 +125,17 @@ export default function StaffManagementPage() {
                 className="px-3 py-2 text-xs rounded-lg border border-slate-300"
               />
               <input
-                type="email"
-                placeholder="staff@leaders.edu"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                type="password"
+                placeholder="Password (min 4 chars)"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 className="px-3 py-2 text-xs rounded-lg border border-slate-300"
               />
               <input
-                type="password"
-                placeholder="Password (min 8 chars)"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                type="email"
+                placeholder="Email (optional)"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="px-3 py-2 text-xs rounded-lg border border-slate-300"
               />
               <select
@@ -128,17 +151,17 @@ export default function StaffManagementPage() {
               <button
                 onClick={() =>
                   createUserMutation.mutate({
-                    email,
-                    password,
                     first_name: firstName,
                     last_name: lastName,
+                    password,
+                    email: email.trim() || undefined,
                     role_name: roleName,
                   })
                 }
-                disabled={!email || !password || !firstName || !lastName}
+                disabled={!password || password.length < 4 || !firstName.trim() || !lastName.trim()}
                 className="px-4 py-2 rounded-lg bg-brand text-white text-xs font-medium hover:bg-brand-light disabled:opacity-50"
               >
-                Create Staff
+                Create Officer
               </button>
             </div>
           </div>
@@ -159,6 +182,7 @@ export default function StaffManagementPage() {
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase">
                 <tr>
                   <th className="px-4 py-2.5">Name</th>
+                  <th className="px-4 py-2.5">Username</th>
                   <th className="px-4 py-2.5">Email</th>
                   <th className="px-4 py-2.5">Role</th>
                   <th className="px-4 py-2.5">Status</th>
@@ -171,6 +195,9 @@ export default function StaffManagementPage() {
                   <tr key={u.id}>
                     <td className="px-4 py-3 font-medium text-slate-900">
                       {u.first_name} {u.last_name}
+                    </td>
+                    <td className="px-4 py-3 font-mono font-semibold text-navy">
+                      {u.username || "—"}
                     </td>
                     <td className="px-4 py-3 text-slate-600">{u.email}</td>
                     <td className="px-4 py-3">
@@ -196,7 +223,7 @@ export default function StaffManagementPage() {
                           <div className="inline-flex items-center justify-end gap-1.5">
                             <input
                               type="password"
-                              placeholder="New password (8+ chars)"
+                              placeholder="New password (4+ chars)"
                               value={newPassword}
                               onChange={(e) => setNewPassword(e.target.value)}
                               className="px-2.5 py-1 text-xs rounded border border-slate-300 w-44"
@@ -206,7 +233,7 @@ export default function StaffManagementPage() {
                               onClick={() =>
                                 updatePasswordMutation.mutate({ id: u.id, password: newPassword })
                               }
-                              disabled={newPassword.length < 8 || updatePasswordMutation.isPending}
+                              disabled={newPassword.length < 4 || updatePasswordMutation.isPending}
                               className="px-2.5 py-1 rounded bg-brand text-white text-xs font-medium hover:bg-brand-light disabled:opacity-50"
                             >
                               {updatePasswordMutation.isPending ? "Saving..." : "Save"}
