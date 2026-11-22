@@ -503,4 +503,14 @@ export const ldiApi = {
       method: "PATCH",
       body: JSON.stringify({ value_json }),
     }),
+  sendTestEmail: (to_email: string) =>
+    apiRequest<{
+      recipient_email: string;
+      delivery_status: string;
+      delivery_provider: string;
+      delivery_detail: string;
+    }>("/api/settings/test-email", {
+      method: "POST",
+      body: JSON.stringify({ to_email }),
+    }),
 };

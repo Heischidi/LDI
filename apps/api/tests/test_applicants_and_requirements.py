@@ -624,3 +624,60 @@ def test_live_custom_client_update_email_and_public_tracker(client: TestClient):
     pub_after = client.get(f"/api/public/track/{token}").json()
     assert pub_after["updates"] == []
     assert pub_after["current_stage_label"] is None
+
+
+def test_settings_test_email_brevo_and_audit_redaction(client: TestClient, monkeypatch):
+    import httpx
+
+    super_hdrs = auth_headers(client, "superadmin@leaders.edu", "LeadersAdmin!2026")
+
+    # 1. Default outbox test email
+    t1 = client.post(
+        "/api/settings/test-email",
+        json={"to_email": "ceo.test@example.com"},
+        headers=super_hdrs,
+    )
+    assert t1.status_code == 200, t1.text
+    assert t1.json()["delivery_status"] == "LOGGED_READY"
+    assert t1.json()["delivery_provider"] == "OUTBOX"
+
+    # 2. Save Brevo config & verify secret key is redacted in audit logs
+    upd = client.patch(
+        "/api/settings/notifications.email",
+        json={
+            "value_json": {
+                "provider": "BREVO",
+                "from_email": "sender@example.com",
+                "from_name": "Leaders Edu Tour Ltd",
+                "brevo_api_key": "xkeysib-super-secret-value",
+            }
+        },
+        headers=super_hdrs,
+    )
+    assert upd.status_code == 200, upd.text
+    logs = client.get("/api/audit-logs?page_size=10", headers=super_hdrs).json()["items"]
+    setting_log = next(item for item in logs if item["action"] == "SYSTEM_SETTING_UPDATED")
+    assert setting_log["metadata_json"]["value"]["brevo_api_key"] == "***REDACTED***"
+
+    # 3. Mock Brevo HTTPS API response only (keep TestClient requests intact) and trigger live test email
+    orig_post = httpx.Client.post
+
+    def _fake_brevo_post(self, url, *args, **kwargs):
+        if "api.brevo.com" in str(url):
+            return httpx.Response(
+                201,
+                json={"messageId": "<brevo-msg-99>"},
+                request=httpx.Request("POST", str(url)),
+            )
+        return orig_post(self, url, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.Client, "post", _fake_brevo_post)
+    t2 = client.post(
+        "/api/settings/test-email",
+        json={"to_email": "ceo.test@example.com"},
+        headers=super_hdrs,
+    )
+    assert t2.status_code == 200, t2.text
+    assert t2.json()["delivery_status"] == "SENT_BREVO"
+    assert t2.json()["delivery_provider"] == "BREVO"
+    assert "brevo-msg-99" in t2.json()["delivery_detail"]

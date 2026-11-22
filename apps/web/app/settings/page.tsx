@@ -2,11 +2,13 @@
 
 import React, { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Save, ShieldAlert } from "lucide-react";
+import { Save, Send, ShieldAlert } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
+import { useAuth } from "@/hooks/use-auth";
 import { ldiApi } from "@/lib/api-client";
 
 export default function SettingsPage() {
+  const { user } = useAuth();
   const qc = useQueryClient();
   const { data: settings = [], isLoading } = useQuery({
     queryKey: ["system-settings"],
@@ -25,7 +27,20 @@ export default function SettingsPage() {
   const [smtpFromEmail, setSmtpFromEmail] = useState("notifications@leaders.edu");
   const [smtpFromName, setSmtpFromName] = useState("Leaders Edu Tour Ltd");
   const [resendApiKey, setResendApiKey] = useState("");
+  const [brevoApiKey, setBrevoApiKey] = useState("");
+  const [testEmail, setTestEmail] = useState("");
+  const [testResult, setTestResult] = useState<{
+    delivery_status: string;
+    delivery_provider: string;
+    delivery_detail: string;
+  } | null>(null);
   const [savedBanner, setSavedBanner] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user?.email && !testEmail) {
+      setTestEmail(user.email);
+    }
+  }, [user?.email, testEmail]);
 
   useEffect(() => {
     const ai = settings.find((s) => s.key === "ai.provider")?.value_json;
@@ -47,8 +62,23 @@ export default function SettingsPage() {
       setSmtpFromEmail(String(notif.from_email || "notifications@leaders.edu"));
       setSmtpFromName(String(notif.from_name || "Leaders Edu Tour Ltd"));
       setResendApiKey(String(notif.resend_api_key || ""));
+      setBrevoApiKey(String(notif.brevo_api_key || ""));
     }
   }, [settings]);
+
+  const persistEmailSettings = () =>
+    ldiApi.updateSetting("notifications.email", {
+      provider: emailProvider,
+      smtp_host: smtpHost,
+      smtp_port: smtpPort,
+      smtp_username: smtpUsername,
+      smtp_password: smtpPassword,
+      smtp_use_tls: smtpPort !== 465,
+      from_email: smtpFromEmail,
+      from_name: smtpFromName,
+      resend_api_key: resendApiKey,
+      brevo_api_key: brevoApiKey,
+    });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -63,20 +93,21 @@ export default function SettingsPage() {
         max_batch_files: 50,
         retention_days: retentionDays,
       });
-      await ldiApi.updateSetting("notifications.email", {
-        provider: emailProvider,
-        smtp_host: smtpHost,
-        smtp_port: smtpPort,
-        smtp_username: smtpUsername,
-        smtp_password: smtpPassword,
-        smtp_use_tls: smtpPort !== 465,
-        from_email: smtpFromEmail,
-        from_name: smtpFromName,
-        resend_api_key: resendApiKey,
-      });
+      await persistEmailSettings();
     },
     onSuccess: () => {
       setSavedBanner("System configuration saved and recorded in audit log.");
+      qc.invalidateQueries({ queryKey: ["system-settings"] });
+    },
+  });
+
+  const testEmailMutation = useMutation({
+    mutationFn: async () => {
+      await persistEmailSettings();
+      return ldiApi.sendTestEmail(testEmail.trim());
+    },
+    onSuccess: (res) => {
+      setTestResult(res);
       qc.invalidateQueries({ queryKey: ["system-settings"] });
     },
   });
@@ -149,10 +180,13 @@ export default function SettingsPage() {
 
           <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
             <h2 className="text-sm font-semibold text-navy">
-              Client Email Reminders (Real-Time Delivery)
+              Client &amp; CEO Email Reminders (Real-Time Delivery)
             </h2>
             <p className="text-xs text-slate-500">
-              Configure SMTP (e.g. Gmail App Password, Zoho, Microsoft 365) or a Resend API key so clients receive live inbox notifications whenever an officer updates a stage milestone.
+              Render&apos;s free hosting blocks outbound SMTP ports (25/465/587). Use{" "}
+              <strong>Brevo HTTP API</strong> (300 free emails/day over HTTPS — works with any Gmail
+              sender) or <strong>Resend API</strong> so CEO reminders and live client updates arrive
+              immediately.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
@@ -164,9 +198,10 @@ export default function SettingsPage() {
                   onChange={(e) => setEmailProvider(e.target.value)}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
                 >
-                  <option value="AUTO">Auto (Resend → SMTP → Outbox)</option>
-                  <option value="SMTP">SMTP Server</option>
-                  <option value="RESEND">Resend API</option>
+                  <option value="AUTO">Auto (Brevo → Resend → SMTP → Outbox)</option>
+                  <option value="BREVO">Brevo HTTP API (Recommended — Works with Gmail)</option>
+                  <option value="RESEND">Resend HTTP API (Custom Domain)</option>
+                  <option value="SMTP">SMTP Server (Paid Host / Local Only)</option>
                   <option value="OUTBOX">Outbox Audit Only</option>
                 </select>
               </div>
@@ -192,10 +227,38 @@ export default function SettingsPage() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  Brevo API Key (Recommended for Render Free + Gmail)
+                </label>
+                <input
+                  type="password"
+                  value={brevoApiKey}
+                  onChange={(e) => setBrevoApiKey(e.target.value)}
+                  placeholder="xkeysib-..."
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  Resend API Key (Optional Alternative)
+                </label>
+                <input
+                  type="password"
+                  value={resendApiKey}
+                  onChange={(e) => setResendApiKey(e.target.value)}
+                  placeholder="re_..."
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2 border-t border-slate-100">
               <div className="sm:col-span-2">
                 <label className="block text-xs font-medium text-slate-700 mb-1">
-                  SMTP Host (e.g. smtp.gmail.com)
+                  SMTP Host (Paid Host / Local Only)
                 </label>
                 <input
                   value={smtpHost}
@@ -226,31 +289,55 @@ export default function SettingsPage() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  SMTP Password / App Password
-                </label>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                SMTP Password / App Password (Optional if using Brevo or Resend)
+              </label>
+              <input
+                type="password"
+                value={smtpPassword}
+                onChange={(e) => setSmtpPassword(e.target.value)}
+                placeholder="Optional if using Brevo / Resend"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+              />
+            </div>
+
+            <div className="pt-3 border-t border-slate-200 space-y-2">
+              <div className="text-xs font-semibold text-navy">Test Live Email Delivery</div>
+              <div className="flex flex-wrap items-center gap-2">
                 <input
-                  type="password"
-                  value={smtpPassword}
-                  onChange={(e) => setSmtpPassword(e.target.value)}
-                  placeholder="Optional if using Resend"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  type="email"
+                  value={testEmail}
+                  onChange={(e) => setTestEmail(e.target.value)}
+                  placeholder="recipient@gmail.com"
+                  className="flex-1 min-w-[220px] px-3 py-2 text-sm rounded-lg border border-slate-300"
                 />
+                <button
+                  type="button"
+                  onClick={() => testEmailMutation.mutate()}
+                  disabled={!testEmail.trim() || testEmailMutation.isPending}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-navy text-white text-xs font-medium hover:bg-navy-700 disabled:opacity-50"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  {testEmailMutation.isPending ? "Sending Test..." : "Save & Send Test Email"}
+                </button>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Resend API Key (Optional Alternative)
-                </label>
-                <input
-                  type="password"
-                  value={resendApiKey}
-                  onChange={(e) => setResendApiKey(e.target.value)}
-                  placeholder="re_..."
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
-                />
-              </div>
+              {testResult && (
+                <div
+                  className={`rounded-lg border px-3 py-2 text-xs ${
+                    testResult.delivery_status.startsWith("SENT")
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                      : testResult.delivery_status === "FAILED"
+                      ? "bg-red-50 border-red-200 text-red-700"
+                      : "bg-amber-50 border-amber-200 text-amber-800"
+                  }`}
+                >
+                  <strong>
+                    {testResult.delivery_status} ({testResult.delivery_provider}):
+                  </strong>{" "}
+                  {testResult.delivery_detail}
+                </div>
+              )}
             </div>
           </div>
 

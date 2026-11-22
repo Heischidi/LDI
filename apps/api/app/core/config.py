@@ -165,8 +165,8 @@ class Settings(BaseSettings):
     # Retention
     DEFAULT_RETENTION_DAYS: int = 365
 
-    # Email Notifications (SMTP / Resend API)
-    EMAIL_PROVIDER: Literal["AUTO", "SMTP", "RESEND", "OUTBOX"] = "AUTO"
+    # Email Notifications (SMTP / Resend API / Brevo HTTP API)
+    EMAIL_PROVIDER: Literal["AUTO", "BREVO", "RESEND", "SMTP", "OUTBOX"] = "AUTO"
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
     SMTP_USERNAME: str = ""
@@ -175,6 +175,7 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = "notifications@leaders.edu"
     SMTP_FROM_NAME: str = "Leaders Edu Tour Ltd"
     RESEND_API_KEY: str = ""
+    BREVO_API_KEY: str = ""
     FRONTEND_BASE_URL: str = "https://ldi-seven.vercel.app"
 
     @property

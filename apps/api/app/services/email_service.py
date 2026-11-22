@@ -287,7 +287,20 @@ def _resolve_email_config(db: Session) -> dict[str, Any]:
         "from_email": str(cfg.get("from_email") or settings.SMTP_FROM_EMAIL or "notifications@leaders.edu").strip(),
         "from_name": str(cfg.get("from_name") or settings.SMTP_FROM_NAME or "Leaders Edu Tour Ltd").strip(),
         "resend_api_key": str(cfg.get("resend_api_key") or settings.RESEND_API_KEY or "").strip(),
+        "brevo_api_key": str(cfg.get("brevo_api_key") or settings.BREVO_API_KEY or "").strip(),
     }
+
+
+def _extract_http_error_detail(exc: httpx.HTTPStatusError) -> str:
+    try:
+        err_json = exc.response.json()
+        if isinstance(err_json, dict):
+            msg = err_json.get("message") or err_json.get("error") or err_json.get("detail")
+            if msg:
+                return str(msg)[:200]
+    except Exception:
+        pass
+    return (exc.response.text or str(exc))[:200]
 
 
 def dispatch_client_email(
@@ -298,13 +311,40 @@ def dispatch_client_email(
     html_body: str,
     text_body: str,
 ) -> tuple[str, str, str]:
-    """Send real-time client email via Resend or SMTP, falling back cleanly to OUTBOX when unconfigured.
+    """Send real-time email via Brevo HTTP API, Resend HTTP API, or SMTP, falling back to OUTBOX.
 
     Returns (delivery_status, delivery_provider, delivery_detail).
     """
     cfg = _resolve_email_config(db)
     provider = cfg["provider"]
     from_header = f"{cfg['from_name']} <{cfg['from_email']}>"
+
+    if provider in {"AUTO", "BREVO"} and cfg["brevo_api_key"]:
+        try:
+            with httpx.Client(timeout=20.0) as client:
+                resp = client.post(
+                    "https://api.brevo.com/v3/smtp/email",
+                    headers={
+                        "api-key": cfg["brevo_api_key"],
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                    },
+                    json={
+                        "sender": {"name": cfg["from_name"], "email": cfg["from_email"]},
+                        "to": [{"email": to_email}],
+                        "subject": subject,
+                        "htmlContent": html_body,
+                        "textContent": text_body,
+                    },
+                )
+                resp.raise_for_status()
+                msg_id = resp.json().get("messageId", "queued")
+            return "SENT_BREVO", "BREVO", f"Delivered live to {to_email} via Brevo API (id: {msg_id})."
+        except httpx.HTTPStatusError as exc:
+            detail = _extract_http_error_detail(exc)
+            return "FAILED", "BREVO", f"Brevo API error ({exc.response.status_code}): {detail}"
+        except Exception as exc:
+            return "FAILED", "BREVO", f"Brevo delivery error: {str(exc)[:220]}"
 
     if provider in {"AUTO", "RESEND"} and cfg["resend_api_key"]:
         try:
@@ -325,9 +365,12 @@ def dispatch_client_email(
                 )
                 resp.raise_for_status()
                 msg_id = resp.json().get("id", "queued")
-            return "SENT_RESEND", "RESEND", f"Delivered via Resend (id: {msg_id})."
+            return "SENT_RESEND", "RESEND", f"Delivered live to {to_email} via Resend (id: {msg_id})."
+        except httpx.HTTPStatusError as exc:
+            detail = _extract_http_error_detail(exc)
+            return "FAILED", "RESEND", f"Resend API error ({exc.response.status_code}): {detail}"
         except Exception as exc:
-            return "FAILED", "RESEND", f"Resend delivery error: {str(exc)[:240]}"
+            return "FAILED", "RESEND", f"Resend delivery error: {str(exc)[:220]}"
 
     if provider in {"AUTO", "SMTP"} and cfg["smtp_host"]:
         try:
@@ -338,6 +381,11 @@ def dispatch_client_email(
             msg.set_content(text_body)
             msg.add_alternative(html_body, subtype="html")
 
+            smtp_password = (
+                cfg["smtp_password"].replace(" ", "")
+                if "gmail" in cfg["smtp_host"].lower()
+                else cfg["smtp_password"]
+            )
             port = cfg["smtp_port"]
             if port == 465:
                 with smtplib.SMTP_SSL(
@@ -347,21 +395,28 @@ def dispatch_client_email(
                     context=ssl.create_default_context(),
                 ) as server:
                     if cfg["smtp_username"]:
-                        server.login(cfg["smtp_username"], cfg["smtp_password"])
+                        server.login(cfg["smtp_username"], smtp_password)
                     server.send_message(msg)
             else:
                 with smtplib.SMTP(cfg["smtp_host"], port, timeout=20) as server:
                     if cfg["smtp_use_tls"]:
                         server.starttls(context=ssl.create_default_context())
                     if cfg["smtp_username"]:
-                        server.login(cfg["smtp_username"], cfg["smtp_password"])
+                        server.login(cfg["smtp_username"], smtp_password)
                     server.send_message(msg)
             return "SENT_SMTP", "SMTP", f"Delivered live to {to_email} via {cfg['smtp_host']}."
         except Exception as exc:
-            return "FAILED", "SMTP", f"SMTP delivery error: {str(exc)[:240]}"
+            err_str = str(exc)
+            if "101" in err_str or "Network is unreachable" in err_str or "timed out" in err_str.lower():
+                return (
+                    "FAILED",
+                    "SMTP",
+                    f"SMTP blocked/unreachable ({err_str[:100]}). Render Free Tier blocks outbound SMTP ports 25/465/587 — switch Delivery Mode to Brevo HTTP API or Resend API (HTTPS) in Settings.",
+                )
+            return "FAILED", "SMTP", f"SMTP delivery error: {err_str[:220]}"
 
     return (
         "LOGGED_READY",
         "OUTBOX",
-        "Notification recorded in outbox; configure SMTP or Resend API key in Settings to deliver to client inboxes.",
+        "Notification recorded in outbox; configure Brevo API, Resend API, or SMTP in Settings to deliver to client inboxes.",
     )

@@ -429,6 +429,17 @@ export default function RemindersPage() {
                               </span>
                             )}
                           </div>
+                          {rem.last_delivery_detail && (
+                            <div
+                              className={`text-[11px] italic ${
+                                rem.last_delivery_status === "FAILED"
+                                  ? "text-red-600"
+                                  : "text-slate-500"
+                              }`}
+                            >
+                              {rem.last_delivery_detail}
+                            </div>
+                          )}
                         </div>
                       </div>
 
