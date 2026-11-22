@@ -36,7 +36,7 @@ class Settings(BaseSettings):
         default="ldi-dev-secret-key-please-override-in-production-64chars-min-0001"
     )
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 120
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     SIGNED_URL_SECRET: str = Field(
         default="ldi-dev-signed-url-secret-please-override-in-production-64chars"

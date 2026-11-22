@@ -47,18 +47,93 @@ export default function ApplicantsPage() {
     queryFn: () => ldiApi.listApplicants(queryStr ? `?${queryStr}` : ""),
   });
 
-  const { data: destinations = [] } = useQuery({
+  const {
+    data: destinations = [],
+    isLoading: destLoading,
+    isError: destIsError,
+    error: destError,
+    refetch: refetchDestinations,
+  } = useQuery({
     queryKey: ["destinations"],
     queryFn: ldiApi.listDestinations,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1500 * 2 ** attempt, 8000),
   });
-  const { data: purposes = [] } = useQuery({
+  const {
+    data: purposes = [],
+    isLoading: purpLoading,
+    isError: purpIsError,
+    error: purpError,
+    refetch: refetchPurposes,
+  } = useQuery({
     queryKey: ["purposes"],
     queryFn: ldiApi.listPurposes,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1500 * 2 ** attempt, 8000),
   });
-  const { data: categories = [] } = useQuery({
+  const {
+    data: categories = [],
+    isLoading: catLoading,
+    isError: catIsError,
+    error: catError,
+    refetch: refetchCategories,
+  } = useQuery({
     queryKey: ["categories"],
     queryFn: () => ldiApi.listCategories(),
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1500 * 2 ** attempt, 8000),
   });
+
+  const refLoading = destLoading || purpLoading || catLoading;
+  const refError = destIsError || purpIsError || catIsError;
+  const refErrorMessage =
+    (destError instanceof Error && destError.message) ||
+    (purpError instanceof Error && purpError.message) ||
+    (catError instanceof Error && catError.message) ||
+    "";
+  const isAuthError = /401|credential|token|unauthori/i.test(refErrorMessage);
+
+  const reloadReferenceData = () => {
+    void refetchDestinations();
+    void refetchPurposes();
+    void refetchCategories();
+  };
+
+  const openNewApplicantModal = () => {
+    setShowNewModal(true);
+    if (destinations.length === 0 || purposes.length === 0 || categories.length === 0) {
+      reloadReferenceData();
+    }
+  };
+
+  const referenceAlert =
+    !refLoading &&
+    (refError || destinations.length === 0 || purposes.length === 0 || categories.length === 0) ? (
+      <div className="rounded-lg bg-amber-50 border border-amber-200 px-3.5 py-2.5 text-xs text-amber-900 flex flex-wrap items-center justify-between gap-2">
+        <span>
+          {isAuthError
+            ? "Your session expired. Please sign in again to load countries, purposes, and visa categories."
+            : "Countries, purposes, or categories did not finish loading (the API server may have been waking up)."}
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={reloadReferenceData}
+            className="px-2.5 py-1 rounded bg-navy text-white font-medium hover:bg-navy-700"
+          >
+            Reload Countries &amp; Categories
+          </button>
+          {isAuthError && (
+            <Link
+              href="/login"
+              className="px-2.5 py-1 rounded border border-amber-400 bg-white text-amber-900 font-medium"
+            >
+              Sign In Again
+            </Link>
+          )}
+        </div>
+      </div>
+    ) : null;
 
   const { data: matchedChecklist } = useQuery({
     queryKey: ["match-checklist", destId, purposeId, categoryId],
@@ -127,6 +202,9 @@ export default function ApplicantsPage() {
   const openEditApplicant = (app: ApplicantSummary) => {
     setEditingApp(app);
     setEditError(null);
+    if (destinations.length === 0 || purposes.length === 0 || categories.length === 0) {
+      reloadReferenceData();
+    }
     setEditForm({
       first_name: app.first_name,
       middle_name: app.middle_name || "",
@@ -249,7 +327,7 @@ export default function ApplicantsPage() {
           )}
           {canDelete && (
             <button
-              onClick={() => setShowNewModal(true)}
+              onClick={openNewApplicantModal}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-light"
             >
               <Plus className="h-4 w-4" />
@@ -552,6 +630,8 @@ export default function ApplicantsPage() {
                 </div>
               </div>
 
+              {referenceAlert}
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">Destination *</label>
@@ -561,7 +641,9 @@ export default function ApplicantsPage() {
                     onChange={(e) => setDestId(e.target.value)}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
                   >
-                    <option value="">Select country...</option>
+                    <option value="">
+                      {destLoading ? "Loading countries..." : "Select country..."}
+                    </option>
                     {destinations.map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.name}
@@ -577,7 +659,9 @@ export default function ApplicantsPage() {
                     onChange={(e) => setPurposeId(e.target.value)}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
                   >
-                    <option value="">Select purpose...</option>
+                    <option value="">
+                      {purpLoading ? "Loading purposes..." : "Select purpose..."}
+                    </option>
                     {purposes.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
@@ -593,7 +677,9 @@ export default function ApplicantsPage() {
                     onChange={(e) => setCategoryId(e.target.value)}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
                   >
-                    <option value="">Select category...</option>
+                    <option value="">
+                      {catLoading ? "Loading categories..." : "Select category..."}
+                    </option>
                     {categories.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
@@ -767,6 +853,8 @@ export default function ApplicantsPage() {
                   </select>
                 </div>
               </div>
+              {referenceAlert}
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">Destination *</label>

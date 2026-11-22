@@ -42,6 +42,31 @@ export function clearStoredSession() {
   window.localStorage.removeItem(USER_KEY);
 }
 
+let inflightRefresh: Promise<TokenResponse | null> | null = null;
+
+async function refreshSessionOnce(refreshToken: string): Promise<TokenResponse | null> {
+  if (!inflightRefresh) {
+    inflightRefresh = (async () => {
+      try {
+        const refreshRes = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+        if (!refreshRes.ok) return null;
+        const tokenData: TokenResponse = await refreshRes.json();
+        setStoredSession(tokenData);
+        return tokenData;
+      } catch {
+        return null;
+      } finally {
+        inflightRefresh = null;
+      }
+    })();
+  }
+  return inflightRefresh;
+}
+
 export async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
@@ -62,17 +87,13 @@ export async function apiRequest<T>(
   });
 
   if (res.status === 401 && retry && refresh) {
-    const refreshRes = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refresh }),
-    });
-    if (refreshRes.ok) {
-      const tokenData: TokenResponse = await refreshRes.json();
-      setStoredSession(tokenData);
+    const tokenData = await refreshSessionOnce(refresh);
+    if (tokenData) {
       return apiRequest<T>(path, options, false);
     }
-    clearStoredSession();
+    if (getStoredTokens().refresh === refresh) {
+      clearStoredSession();
+    }
   }
 
   if (!res.ok) {
