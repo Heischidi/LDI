@@ -109,6 +109,7 @@ class OfficerBrief(BaseModel):
 class ApplicantSummary(BaseModel):
     id: str
     application_reference: str
+    tracking_token: str | None = None
     first_name: str
     middle_name: str | None = None
     last_name: str
@@ -188,3 +189,35 @@ class ApplicantDetail(ApplicantSummary):
     batches: list[dict[str, Any]] = Field(default_factory=list)
     exports: list[dict[str, Any]] = Field(default_factory=list)
     stage_updates: list[StageUpdateRead] = Field(default_factory=list)
+
+
+class PublicChecklistItemRead(BaseModel):
+    display_order: int
+    document_type_name: str
+    requirement_level: str
+    status: str
+
+
+class PublicStageUpdateRead(BaseModel):
+    id: str
+    track: str
+    stage_code: str
+    stage_label: str
+    message_body: str
+    sent_by_name: str | None = None
+    created_at: datetime
+
+
+class PublicApplicantTrackingRead(BaseModel):
+    application_reference: str
+    applicant_name: str
+    destination_name: str
+    purpose_name: str
+    category_name: str
+    status: str
+    current_stage_label: str | None = None
+    assigned_officer_name: str | None = None
+    checklist_summary: dict[str, int] = Field(default_factory=dict)
+    checklist_items: list[PublicChecklistItemRead] = Field(default_factory=list)
+    updates: list[PublicStageUpdateRead] = Field(default_factory=list)
+    updated_at: datetime

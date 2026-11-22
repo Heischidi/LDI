@@ -1,12 +1,14 @@
 """Idempotent database seeder for initial roles, permissions, users, checklists, and settings."""
 
 from datetime import datetime, timezone
+import secrets
 
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.core.security import compute_base_username, hash_password
 from app.models.entities import (
+    Applicant,
     ApplicationCategory,
     Destination,
     DocumentAlias,
@@ -185,9 +187,30 @@ def _ensure_user_username_column(db: Session) -> None:
         db.commit()
 
 
+def _ensure_applicant_tracking_token_column(db: Session) -> None:
+    """Safely add applicants.tracking_token column on existing DBs and backfill existing applicants."""
+    inspector = inspect(db.get_bind())
+    if "applicants" not in inspector.get_table_names():
+        return
+    cols = {col["name"] for col in inspector.get_columns("applicants")}
+    if "tracking_token" not in cols:
+        db.execute(text("ALTER TABLE applicants ADD COLUMN tracking_token VARCHAR(80)"))
+        db.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS ix_applicants_tracking_token ON applicants (tracking_token)")
+        )
+        db.commit()
+
+    missing_rows = db.scalars(select(Applicant).where(Applicant.tracking_token.is_(None))).all()
+    if missing_rows:
+        for app_row in missing_rows:
+            app_row.tracking_token = secrets.token_urlsafe(24)
+        db.commit()
+
+
 def seed_initial_data(db: Session) -> None:
     """Populate initial RBAC roles, staff accounts, reference data, and requirement checklists."""
     _ensure_user_username_column(db)
+    _ensure_applicant_tracking_token_column(db)
 
     # 1. Permissions & Roles
     perm_map: dict[str, Permission] = {}

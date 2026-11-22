@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import (
     ROLE_ADMIN,
@@ -44,6 +45,9 @@ from app.schemas.applicants import (
     DestinationCreate,
     DestinationRead,
     OfficerBrief,
+    PublicApplicantTrackingRead,
+    PublicChecklistItemRead,
+    PublicStageUpdateRead,
     StageUpdateCreate,
     StageUpdateRead,
     TravelPurposeCreate,
@@ -86,6 +90,24 @@ def _mask_passport(encrypted_val: str | None) -> str | None:
     return f"{plain[:2]}{'*' * (len(plain) - 4)}{plain[-2:]}"
 
 
+def _ensure_tracking_token(db: Session, app: Applicant) -> str:
+    if not app.tracking_token:
+        app.tracking_token = secrets.token_urlsafe(24)
+        db.flush()
+    return app.tracking_token
+
+
+def _clean_public_update_message(raw: str) -> str:
+    text = raw or ""
+    for marker in (
+        "\n\nTrack your live application progress anytime:",
+        "\n\nAssigned Officer:",
+    ):
+        if marker in text:
+            text = text.split(marker, 1)[0]
+    return text.strip()
+
+
 def _serialize_applicant_summary(app: Applicant) -> ApplicantSummary:
     full_name = " ".join(p for p in [app.first_name, app.middle_name, app.last_name] if p)
     missing_req = sum(1 for c in app.checklist_statuses if c.status == "MISSING")
@@ -98,6 +120,7 @@ def _serialize_applicant_summary(app: Applicant) -> ApplicantSummary:
     return ApplicantSummary(
         id=app.id,
         application_reference=app.application_reference,
+        tracking_token=app.tracking_token,
         first_name=app.first_name,
         middle_name=app.middle_name,
         last_name=app.last_name,
@@ -362,6 +385,7 @@ def create_applicant(
     is_super_admin = bool(is_super_privileged(current_user))
     applicant = Applicant(
         application_reference=_generate_app_reference(db),
+        tracking_token=secrets.token_urlsafe(24),
         first_name=payload.first_name.strip(),
         middle_name=payload.middle_name.strip() if payload.middle_name else None,
         last_name=payload.last_name.strip(),
@@ -429,6 +453,10 @@ def get_applicant_detail(
     if not app:
         raise HTTPException(status_code=404, detail="Applicant not found.")
     ensure_applicant_access(app, current_user)
+    if not app.tracking_token:
+        _ensure_tracking_token(db, app)
+        db.commit()
+        return get_applicant_detail(applicant_id, db=db, current_user=current_user)
 
     summary = _serialize_applicant_summary(app)
     doc_lookup = {d.id: d for d in app.documents}
@@ -594,16 +622,29 @@ def send_applicant_stage_update(
     if not app:
         raise HTTPException(status_code=404, detail="Applicant not found.")
 
+    token = _ensure_tracking_token(db, app)
+    tracking_url = f"{settings.FRONTEND_BASE_URL.rstrip('/')}/track/{token}"
+
     track = payload.track.strip().upper()
     stage_code = payload.stage_code.strip().upper()
     tmpl = find_stage_template(track, stage_code)
+    is_live_custom = track == "LIVE_UPDATE" or stage_code == "CUSTOM_UPDATE" or tmpl is None
     stage_label = (payload.stage_label or (tmpl["label"] if tmpl else stage_code.replace("_", " ").title())).strip()
 
-    raw_subject = payload.subject or (tmpl["default_subject"] if tmpl else f"Application Update: {stage_label} — {{application_reference}}")
+    raw_subject = payload.subject or (
+        tmpl["default_subject"]
+        if tmpl
+        else "Application Update: {stage_label} — {application_reference}"
+    )
     raw_message = payload.message_body or (
         tmpl["default_message"]
         if tmpl
-        else "Hello {applicant_name},\n\nYour application ({application_reference}) has reached milestone: {stage_label}."
+        else (
+            "Hello {applicant_name},\n\n"
+            "There is a new live update on your {destination} ({category}) application ({application_reference}):\n\n"
+            "{stage_label}\n\n"
+            "You can follow your complete application progress anytime using your live tracker link below."
+        )
     )
 
     subject = render_stage_message_text(template=raw_subject, applicant=app, stage_label=stage_label)
@@ -629,6 +670,7 @@ def send_applicant_stage_update(
         missing_items=missing_items,
         officer_name=officer_name,
         officer_email=current_user.email,
+        tracking_url=tracking_url,
     )
 
     delivery_status, delivery_provider, delivery_detail = dispatch_client_email(
@@ -659,8 +701,11 @@ def send_applicant_stage_update(
     new_ctx["current_stage_code"] = stage_code
     new_ctx["current_stage_label"] = stage_label
     app.eligibility_context = new_ctx
-    if payload.update_applicant_status and tmpl and tmpl.get("applicant_status"):
-        app.status = tmpl["applicant_status"]
+    if payload.update_applicant_status:
+        if tmpl and tmpl.get("applicant_status"):
+            app.status = tmpl["applicant_status"]
+        elif is_live_custom and app.status in {"DRAFT", "NEW"}:
+            app.status = "PROCESSING"
 
     record_audit_event(
         db,
@@ -671,6 +716,7 @@ def send_applicant_stage_update(
         metadata={
             "track": track,
             "stage_code": stage_code,
+            "stage_label": stage_label,
             "recipient_email": app.email,
             "delivery_status": delivery_status,
             "delivery_provider": delivery_provider,
@@ -680,6 +726,148 @@ def send_applicant_stage_update(
     db.commit()
     db.refresh(update_row)
     return StageUpdateRead.model_validate(update_row)
+
+
+@router.delete("/applicants/{applicant_id}/stage-updates/{update_id}", response_model=MessageResponse)
+def delete_applicant_stage_update(
+    applicant_id: str,
+    update_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OFFICER)),
+) -> MessageResponse:
+    """Remove an erroneous client stage update entry and recompute latest step."""
+    app = db.scalar(select(Applicant).where(Applicant.id == applicant_id))
+    if not app:
+        raise HTTPException(status_code=404, detail="Applicant not found.")
+    ensure_applicant_access(app, current_user)
+
+    upd = db.scalar(
+        select(ClientStageUpdate).where(
+            ClientStageUpdate.id == update_id,
+            ClientStageUpdate.applicant_id == applicant_id,
+        )
+    )
+    if not upd:
+        raise HTTPException(status_code=404, detail="Stage update not found.")
+
+    label = upd.stage_label
+    db.delete(upd)
+    db.flush()
+
+    latest_remaining = db.scalar(
+        select(ClientStageUpdate)
+        .where(ClientStageUpdate.applicant_id == applicant_id)
+        .order_by(ClientStageUpdate.created_at.desc())
+    )
+    new_ctx = dict(app.eligibility_context or {})
+    if latest_remaining:
+        new_ctx["current_stage_code"] = latest_remaining.stage_code
+        new_ctx["current_stage_label"] = latest_remaining.stage_label
+    else:
+        new_ctx.pop("current_stage_code", None)
+        new_ctx.pop("current_stage_label", None)
+    app.eligibility_context = new_ctx
+
+    record_audit_event(
+        db,
+        action="CLIENT_STAGE_UPDATE_DELETED",
+        entity_type="applicant",
+        entity_id=app.id,
+        actor=current_user,
+        metadata={"update_id": update_id, "stage_label": label},
+        request=request,
+    )
+    db.commit()
+    return MessageResponse(message=f"Deleted client update '{label}'.")
+
+
+@router.get("/public/track/{tracking_token}", response_model=PublicApplicantTrackingRead)
+def get_public_client_tracking(
+    tracking_token: str,
+    db: Session = Depends(get_db),
+) -> PublicApplicantTrackingRead:
+    """Read-only public status tracker for clients via their unique tracking token (no PII/files exposed)."""
+    app = db.scalar(
+        select(Applicant)
+        .options(
+            joinedload(Applicant.destination),
+            joinedload(Applicant.purpose),
+            joinedload(Applicant.category),
+            joinedload(Applicant.assigned_officer),
+            joinedload(Applicant.checklist_statuses).joinedload(ApplicantDocumentStatus.document_type),
+            joinedload(Applicant.checklist_statuses).joinedload(ApplicantDocumentStatus.document_requirement),
+        )
+        .where(Applicant.tracking_token == tracking_token, Applicant.is_archived.is_(False))
+    )
+    if not app:
+        raise HTTPException(status_code=404, detail="Tracking link not found or expired.")
+
+    updates_rows = db.scalars(
+        select(ClientStageUpdate)
+        .where(ClientStageUpdate.applicant_id == app.id)
+        .order_by(ClientStageUpdate.created_at.desc())
+    ).all()
+
+    sorted_rows = sorted(
+        app.checklist_statuses,
+        key=lambda r: r.document_requirement.display_order if r.document_requirement else 999,
+    )
+    checklist_items = [
+        PublicChecklistItemRead(
+            display_order=r.document_requirement.display_order if r.document_requirement else idx,
+            document_type_name=r.document_type.name if r.document_type else "Document",
+            requirement_level=r.document_requirement.requirement_level if r.document_requirement else "REQUIRED",
+            status=r.status,
+        )
+        for idx, r in enumerate(sorted_rows, start=1)
+    ]
+
+    completed_cnt = sum(1 for c in checklist_items if c.status == "FOUND")
+    pending_cnt = sum(1 for c in checklist_items if c.status == "PENDING_REVIEW")
+    missing_cnt = sum(
+        1 for c in checklist_items if c.status in {"MISSING", "UNREADABLE", "POTENTIALLY_INVALID"}
+    )
+
+    full_name = " ".join(p for p in [app.first_name, app.middle_name, app.last_name] if p)
+    officer_name = (
+        f"{app.assigned_officer.first_name} {app.assigned_officer.last_name}".strip()
+        if app.assigned_officer
+        else None
+    )
+    ctx = app.eligibility_context or {}
+    current_label = ctx.get("current_stage_label") or (updates_rows[0].stage_label if updates_rows else None)
+
+    return PublicApplicantTrackingRead(
+        application_reference=app.application_reference,
+        applicant_name=full_name,
+        destination_name=app.destination.name if app.destination else "",
+        purpose_name=app.purpose.name if app.purpose else "",
+        category_name=app.category.name if app.category else "",
+        status=app.status,
+        current_stage_label=current_label,
+        assigned_officer_name=officer_name,
+        checklist_summary={
+            "total": len(checklist_items),
+            "completed": completed_cnt,
+            "pending": pending_cnt,
+            "missing": missing_cnt,
+        },
+        checklist_items=checklist_items,
+        updates=[
+            PublicStageUpdateRead(
+                id=u.id,
+                track=u.track,
+                stage_code=u.stage_code,
+                stage_label=u.stage_label,
+                message_body=_clean_public_update_message(u.message_body),
+                sent_by_name=u.sent_by_name,
+                created_at=u.created_at,
+            )
+            for u in updates_rows
+        ],
+        updated_at=app.updated_at,
+    )
 
 
 @router.patch("/applicants/{applicant_id}", response_model=ApplicantDetail)

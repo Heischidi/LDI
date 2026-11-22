@@ -197,6 +197,7 @@ def build_stage_email_bodies(
     missing_items: list[str],
     officer_name: str,
     officer_email: str,
+    tracking_url: str | None = None,
 ) -> tuple[str, str]:
     """Build executive HTML and plain-text email payloads with missing checklist reminders."""
     text_parts = [message_body.strip()]
@@ -204,6 +205,8 @@ def build_stage_email_bodies(
         text_parts.append(
             "Outstanding Required Documents:\n" + "\n".join(f"  - {item}" for item in missing_items)
         )
+    if tracking_url:
+        text_parts.append(f"Track your live application progress anytime:\n{tracking_url}")
     text_parts.append(
         f"Assigned Officer: {officer_name} ({officer_email})\n"
         f"Leaders Edu Tour Ltd · Built by CHIDI AI"
@@ -219,6 +222,20 @@ def build_stage_email_bodies(
             "<div style='font-weight:600;color:#92400e;margin-bottom:6px;font-size:13px;'>"
             "Outstanding Required Documents</div>"
             f"<ul style='margin:0;padding-left:18px;color:#78350f;font-size:13px;'>{bullets}</ul>"
+            "</div>"
+        )
+
+    tracking_html = ""
+    if tracking_url:
+        safe_url = html.escape(tracking_url, quote=True)
+        tracking_html = (
+            "<div style='margin-top:20px;padding:14px 16px;background:#ecfdf5;border:1px solid #a7f3d0;"
+            "border-radius:10px;text-align:center;'>"
+            "<div style='font-size:12px;color:#065f46;margin-bottom:10px;font-weight:600;'>"
+            "Live Application Tracker</div>"
+            f"<a href='{safe_url}' style='display:inline-block;padding:10px 20px;background:#059669;"
+            "color:#ffffff;text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;'>"
+            "View Live Application Tracker</a>"
             "</div>"
         )
 
@@ -241,6 +258,7 @@ def build_stage_email_bodies(
       </div>
       <div>{formatted_msg}</div>
       {missing_html}
+      {tracking_html}
       <div style="margin-top:20px;padding-top:14px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569;">
         <strong>Handled by:</strong> {html.escape(officer_name)} ({html.escape(officer_email)})
       </div>

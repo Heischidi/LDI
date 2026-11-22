@@ -175,6 +175,7 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = "notifications@leaders.edu"
     SMTP_FROM_NAME: str = "Leaders Edu Tour Ltd"
     RESEND_API_KEY: str = ""
+    FRONTEND_BASE_URL: str = "https://ldi-seven.vercel.app"
 
     @property
     def resolved_vault_path(self) -> Path:

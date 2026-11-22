@@ -304,6 +304,9 @@ class Applicant(Base):
     application_reference: Mapped[str] = mapped_column(
         String(40), unique=True, nullable=False, index=True
     )
+    tracking_token: Mapped[str | None] = mapped_column(
+        String(80), unique=True, nullable=True, index=True
+    )
     first_name: Mapped[str] = mapped_column(String(100), nullable=False)
     middle_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)

@@ -115,6 +115,7 @@ export interface DocumentRecord {
 export interface ApplicantSummary {
   id: string;
   application_reference: string;
+  tracking_token?: string | null;
   first_name: string;
   middle_name?: string | null;
   last_name: string;
@@ -323,5 +324,38 @@ export interface StatementOfPurposeItem {
   ai_provider: string;
   ai_model: string;
   created_at: string;
+  updated_at: string;
+}
+
+export interface PublicTrackingResponse {
+  application_reference: string;
+  applicant_name: string;
+  destination_name: string;
+  purpose_name: string;
+  category_name: string;
+  status: string;
+  current_stage_label?: string | null;
+  assigned_officer_name?: string | null;
+  checklist_summary: {
+    total: number;
+    completed: number;
+    pending: number;
+    missing: number;
+  };
+  checklist_items: Array<{
+    display_order: number;
+    document_type_name: string;
+    requirement_level: string;
+    status: string;
+  }>;
+  updates: Array<{
+    id: string;
+    track: string;
+    stage_code: string;
+    stage_label: string;
+    message_body: string;
+    sent_by_name?: string | null;
+    created_at: string;
+  }>;
   updated_at: string;
 }

@@ -552,3 +552,75 @@ def test_sop_generation_edit_export_attach_and_edit_endpoints(client: TestClient
     bdel_sop = client.post("/api/sop/batch-delete", json={"ids": [sop2_id]}, headers=super_hdrs)
     assert bdel_sop.status_code == 200
     assert bdel_sop.json()["deleted_count"] == 1
+
+
+def test_live_custom_client_update_email_and_public_tracker(client: TestClient):
+    officer_hdrs = auth_headers(client, "officer@leaders.edu", "LeadersOfficer!2026")
+    dests = {d["code"]: d for d in client.get("/api/reference/destinations", headers=officer_hdrs).json()}
+    purps = {p["code"]: p for p in client.get("/api/reference/purposes", headers=officer_hdrs).json()}
+    cats = {c["code"]: c for c in client.get("/api/reference/categories", headers=officer_hdrs).json()}
+
+    created = client.post(
+        "/api/applicants",
+        json={
+            "first_name": "Ngozi",
+            "last_name": "Okon",
+            "email": "ngozi.okon@example.com",
+            "phone_number": "+2348022223333",
+            "nationality": "Nigerian",
+            "passport_number": "B98765432",
+            "destination_id": dests["CA"]["id"],
+            "purpose_id": purps["STUDY"]["id"],
+            "category_id": cats["STUDY_PERMIT"]["id"],
+        },
+        headers=officer_hdrs,
+    )
+    assert created.status_code == 201, created.text
+    app_data = created.json()
+    app_id = app_data["id"]
+    token = app_data["tracking_token"]
+    assert token and len(token) >= 16
+
+    # Post free-form quick live update like "Visa documents collected"
+    upd_res = client.post(
+        f"/api/applicants/{app_id}/stage-updates",
+        json={
+            "track": "LIVE_UPDATE",
+            "stage_code": "CUSTOM_UPDATE",
+            "stage_label": "Visa documents collected",
+            "message_body": "Our team has collected your visa documents for final review.",
+            "include_missing_checklist": False,
+            "update_applicant_status": True,
+        },
+        headers=officer_hdrs,
+    )
+    assert upd_res.status_code == 201, upd_res.text
+    upd = upd_res.json()
+    assert upd["stage_label"] == "Visa documents collected"
+    assert f"/track/{token}" in upd["message_body"]
+
+    # Unauthenticated client fetches live tracker URL cleanly without exposing PII/files
+    pub_res = client.get(f"/api/public/track/{token}")
+    assert pub_res.status_code == 200, pub_res.text
+    pub = pub_res.json()
+    assert pub["application_reference"] == app_data["application_reference"]
+    assert pub["current_stage_label"] == "Visa documents collected"
+    assert len(pub["updates"]) == 1
+    assert "Assigned Officer:" not in pub["updates"][0]["message_body"]
+    assert "passport_number" not in pub
+    assert "email" not in pub
+    assert "phone_number" not in pub
+    assert pub["checklist_summary"]["total"] >= 1
+
+    # Unknown token returns 404
+    assert client.get("/api/public/track/nonexistent-token-xyz").status_code == 404
+
+    # Delete update and verify timeline & current milestone clean up
+    del_res = client.delete(
+        f"/api/applicants/{app_id}/stage-updates/{upd['id']}",
+        headers=officer_hdrs,
+    )
+    assert del_res.status_code == 200, del_res.text
+    pub_after = client.get(f"/api/public/track/{token}").json()
+    assert pub_after["updates"] == []
+    assert pub_after["current_stage_label"] is None

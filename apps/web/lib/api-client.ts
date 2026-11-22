@@ -165,6 +165,26 @@ export const ldiApi = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  deleteStageUpdate: (applicantId: string, updateId: string) =>
+    apiRequest<{ message: string }>(`/api/applicants/${applicantId}/stage-updates/${updateId}`, {
+      method: "DELETE",
+    }),
+  getPublicTracking: async (token: string): Promise<import("@/types").PublicTrackingResponse> => {
+    const res = await fetch(`${API_BASE_URL}/api/public/track/${encodeURIComponent(token)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      let msg = `Tracking link not found (${res.status})`;
+      try {
+        const body = await res.json();
+        if (body?.detail) msg = body.detail;
+      } catch {
+        // ignore JSON parse errors on fallback message
+      }
+      throw new Error(msg);
+    }
+    return res.json();
+  },
   archiveApplicant: (id: string) =>
     apiRequest<{ message: string }>(`/api/applicants/${id}`, { method: "DELETE" }),
   batchDeleteApplicants: (ids: string[]) =>
