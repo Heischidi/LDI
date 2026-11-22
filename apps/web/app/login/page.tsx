@@ -25,7 +25,6 @@ export default function LoginPage() {
   const {
     register,
     handleSubmit,
-    setValue,
     formState: { errors, isSubmitting },
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
@@ -48,11 +47,6 @@ export default function LoginPage() {
     } catch (err) {
       setResetStatus(err instanceof Error ? err.message : "Unable to request reset");
     }
-  };
-
-  const fillDemo = (email: string, password: string) => {
-    setValue("email", email);
-    setValue("password", password);
   };
 
   return (
@@ -116,7 +110,7 @@ export default function LoginPage() {
                   <Mail className="h-4 w-4 text-slate-400 absolute left-3 top-3" />
                   <input
                     type="text"
-                    placeholder="adeyemitu or officer@leaders.edu"
+                    placeholder="Enter your username or staff email"
                     {...register("email")}
                     className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-navy/20 focus:border-navy"
                   />
@@ -161,31 +155,6 @@ export default function LoginPage() {
               >
                 {isSubmitting ? "Signing in..." : "Sign In to Workspace"}
               </button>
-
-              {/* Seeded Role Quick-Select for Internal Verification */}
-              <div className="pt-4 border-t border-slate-200">
-                <p className="text-xs font-medium text-slate-500 mb-2">
-                  Seeded Staff Accounts (Local Dev / Testing):
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => fillDemo("officer@leaders.edu", "LeadersOfficer!2026")}
-                    className="text-left px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs"
-                  >
-                    <div className="font-semibold text-navy">Processing Officer</div>
-                    <div className="text-slate-500 truncate">officer@leaders.edu</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => fillDemo("superadmin@leaders.edu", "LeadersAdmin!2026")}
-                    className="text-left px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs"
-                  >
-                    <div className="font-semibold text-brand">Super Admin</div>
-                    <div className="text-slate-500 truncate">superadmin@leaders.edu</div>
-                  </button>
-                </div>
-              </div>
             </form>
           ) : (
             <form onSubmit={handleResetRequest} className="space-y-4">

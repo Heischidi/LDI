@@ -73,6 +73,7 @@ class ClassificationCorrectionRequest(BaseModel):
     issuing_authority: str | None = None
     issue_date: str | None = None
     expiry_date: str | None = None
+    custom_filename: str | None = Field(default=None, max_length=255)
     is_duplicate: bool | None = None
     is_excluded: bool | None = None
     notes: str | None = None

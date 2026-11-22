@@ -17,6 +17,7 @@ from app.models.entities import (
     PersonalReminder,
     RequirementVersion,
     Role,
+    StatementOfPurpose,
     SystemSetting,
     UploadBatch,
     UploadedDocument,
@@ -127,7 +128,18 @@ def update_staff_user(
         user.first_name = payload.first_name.strip()
     if payload.last_name is not None:
         user.last_name = payload.last_name.strip()
-    if payload.first_name is not None or payload.last_name is not None or not user.username:
+    if payload.email is not None:
+        new_email = payload.email.strip().lower()
+        if new_email != user.email:
+            if db.scalar(select(User).where(User.email == new_email, User.id != user.id)):
+                raise HTTPException(status_code=400, detail="Email address is already registered.")
+            user.email = new_email
+    if payload.username is not None and payload.username.strip():
+        new_uname = payload.username.strip().lower()
+        if db.scalar(select(User).where(User.username == new_uname, User.id != user.id)):
+            raise HTTPException(status_code=400, detail="Username is already taken.")
+        user.username = new_uname
+    elif payload.first_name is not None or payload.last_name is not None or not user.username:
         user.username = generate_unique_username(
             db, user.first_name, user.last_name, exclude_user_id=user.id
         )
@@ -209,6 +221,11 @@ def _unlink_user_references(db: Session, user_ids: list[str]) -> None:
         update(SystemSetting)
         .where(SystemSetting.updated_by_id.in_(user_ids))
         .values(updated_by_id=None)
+    )
+    db.execute(
+        update(StatementOfPurpose)
+        .where(StatementOfPurpose.created_by_id.in_(user_ids))
+        .values(created_by_id=None)
     )
     db.execute(delete(PersonalReminder).where(PersonalReminder.user_id.in_(user_ids)))
     db.flush()

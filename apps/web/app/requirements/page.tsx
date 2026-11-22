@@ -2,10 +2,11 @@
 
 import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Globe2, Plus, Save, Tag, Trash2 } from "lucide-react";
+import { Globe2, Pencil, Plus, Save, Tag, Trash2, X } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { ldiApi } from "@/lib/api-client";
+import type { DocumentType } from "@/types";
 
 export default function RequirementsManagerPage() {
   const { hasRole } = useAuth();
@@ -258,6 +259,93 @@ export default function RequirementsManagerPage() {
       payload: { change_notes: "Removed requirement rule from checklist", items: remaining },
     });
   };
+
+  const [editingSetMeta, setEditingSetMeta] = useState(false);
+  const [editSetName, setEditSetName] = useState("");
+  const [editFolderTemplate, setEditFolderTemplate] = useState("");
+
+  const startEditSetMeta = () => {
+    if (!activeSet) return;
+    setEditSetName(activeSet.name);
+    setEditFolderTemplate(activeSet.folder_template);
+    setEditingSetMeta(true);
+  };
+
+  const saveSetMeta = () => {
+    if (!activeSet || !editSetName.trim()) return;
+    updateSetMutation.mutate({
+      id: activeSet.id,
+      payload: {
+        name: editSetName.trim(),
+        folder_template: editFolderTemplate.trim() || undefined,
+        change_notes: "Edited checklist name / folder template",
+      },
+    });
+    setEditingSetMeta(false);
+  };
+
+  const [editingRuleIdx, setEditingRuleIdx] = useState<number | null>(null);
+  const [ruleOrder, setRuleOrder] = useState<number>(1);
+  const [ruleLevel, setRuleLevel] = useState<"REQUIRED" | "OPTIONAL" | "CONDITIONAL">("REQUIRED");
+  const [ruleValidity, setRuleValidity] = useState<string>("");
+  const [ruleInstructions, setRuleInstructions] = useState<string>("");
+
+  const startEditRule = (idx: number) => {
+    const item = activeItems[idx];
+    if (!item) return;
+    setEditingRuleIdx(idx);
+    setRuleOrder(item.display_order);
+    setRuleLevel(item.requirement_level as "REQUIRED" | "OPTIONAL" | "CONDITIONAL");
+    setRuleValidity(item.min_validity_days ? String(item.min_validity_days) : "");
+    setRuleInstructions(item.custom_instructions || item.condition_explanation || "");
+  };
+
+  const saveEditRule = () => {
+    if (!activeSet?.active_version || editingRuleIdx === null) return;
+    const updated = mapExistingItems()
+      .map((item, idx) =>
+        idx === editingRuleIdx
+          ? {
+              ...item,
+              display_order: Math.max(1, Number(ruleOrder) || 1),
+              requirement_level: ruleLevel,
+              min_validity_days: ruleValidity.trim() ? Number(ruleValidity) : null,
+              custom_instructions: ruleInstructions.trim() || null,
+              condition_explanation:
+                ruleLevel === "CONDITIONAL"
+                  ? ruleInstructions.trim() || item.condition_explanation || "Conditional requirement"
+                  : null,
+            }
+          : item
+      )
+      .sort((a, b) => a.display_order - b.display_order);
+    updateSetMutation.mutate({
+      id: activeSet.id,
+      payload: { change_notes: "Edited requirement rule details", items: updated },
+    });
+    setEditingRuleIdx(null);
+  };
+
+  const [editingDocTypeId, setEditingDocTypeId] = useState<string | null>(null);
+  const [editDocTypeName, setEditDocTypeName] = useState("");
+  const [editDocTypeAliases, setEditDocTypeAliases] = useState("");
+
+  const startEditDocType = (dt: DocumentType) => {
+    setEditingDocTypeId(dt.id);
+    setEditDocTypeName(dt.name);
+    setEditDocTypeAliases(dt.aliases.map((a) => a.alias_name).join(", "));
+  };
+
+  const updateTypeMutation = useMutation({
+    mutationFn: ({ id, name, aliases }: { id: string; name: string; aliases: string[] }) =>
+      ldiApi.updateDocumentType(id, { name, aliases }),
+    onSuccess: () => {
+      setEditingDocTypeId(null);
+      setBannerMsg("Canonical document type & aliases updated.");
+      qc.invalidateQueries({ queryKey: ["document-types"] });
+      qc.invalidateQueries({ queryKey: ["requirement-sets"] });
+    },
+  });
 
   const visibleSetIds = filteredSets.map((s) => s.id);
   const allSetsSelected =
@@ -599,6 +687,16 @@ export default function RequirementsManagerPage() {
                   {canEdit && (
                     <button
                       type="button"
+                      onClick={startEditSetMeta}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-navy text-xs font-medium hover:bg-slate-50"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit Checklist
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button
+                      type="button"
                       onClick={() => deleteSetMutation.mutate(activeSet.id)}
                       disabled={deleteSetMutation.isPending}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs font-medium hover:bg-red-100"
@@ -609,6 +707,48 @@ export default function RequirementsManagerPage() {
                   )}
                 </div>
               </div>
+
+              {editingSetMeta && canEdit && (
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3.5 grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                  <div className="md:col-span-5">
+                    <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                      Checklist Name
+                    </label>
+                    <input
+                      value={editSetName}
+                      onChange={(e) => setEditSetName(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
+                  <div className="md:col-span-5">
+                    <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                      Export Folder Template
+                    </label>
+                    <input
+                      value={editFolderTemplate}
+                      onChange={(e) => setEditFolderTemplate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-300 bg-white font-mono"
+                    />
+                  </div>
+                  <div className="md:col-span-2 flex gap-1.5 justify-end">
+                    <button
+                      type="button"
+                      onClick={saveSetMeta}
+                      disabled={!editSetName.trim() || updateSetMutation.isPending}
+                      className="px-3 py-1.5 rounded bg-brand text-white text-xs font-medium hover:bg-brand-light disabled:opacity-50"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingSetMeta(false)}
+                      className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs text-slate-700"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Naming Convention Config */}
               <div className="flex flex-wrap items-end gap-3 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
@@ -669,13 +809,13 @@ export default function RequirementsManagerPage() {
                       <th className="px-3 py-2">Requirement</th>
                       <th className="px-3 py-2">Min Validity</th>
                       <th className="px-3 py-2">Instructions / Condition</th>
-                      {canEdit && <th className="px-3 py-2 text-right">Remove</th>}
+                      {canEdit && <th className="px-3 py-2 text-right">Actions</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {activeItems.map((item, idx) => (
-                      <tr key={item.id}>
-                        {canEdit && (
+                    {activeItems.map((item, idx) =>
+                      editingRuleIdx === idx && canEdit ? (
+                        <tr key={item.id} className="bg-amber-50/40">
                           <td className="px-3 py-2">
                             <input
                               type="checkbox"
@@ -691,54 +831,144 @@ export default function RequirementsManagerPage() {
                               className="rounded border-slate-300"
                             />
                           </td>
-                        )}
-                        <td className="px-3 py-2 font-mono text-slate-500">{item.display_order}</td>
-                        <td className="px-3 py-2 font-medium text-slate-900">
-                          {item.document_type_name}
-                        </td>
-                        <td className="px-3 py-2">
-                          {canEdit ? (
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              min={1}
+                              value={ruleOrder}
+                              onChange={(e) => setRuleOrder(Number(e.target.value))}
+                              className="w-14 px-2 py-1 rounded border border-slate-300 bg-white font-mono text-xs"
+                            />
+                          </td>
+                          <td className="px-3 py-2 font-medium text-slate-900">
+                            {item.document_type_name}
+                          </td>
+                          <td className="px-3 py-2">
                             <select
-                              value={item.requirement_level}
+                              value={ruleLevel}
                               onChange={(e) =>
-                                changeItemLevel(
-                                  idx,
+                                setRuleLevel(
                                   e.target.value as "REQUIRED" | "OPTIONAL" | "CONDITIONAL"
                                 )
                               }
-                              className="px-2 py-1 rounded border border-slate-200 bg-white text-xs font-medium text-slate-700"
+                              className="px-2 py-1 rounded border border-slate-300 bg-white text-xs"
                             >
                               <option value="REQUIRED">REQUIRED</option>
                               <option value="CONDITIONAL">CONDITIONAL</option>
                               <option value="OPTIONAL">OPTIONAL</option>
                             </select>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">
-                              {item.requirement_level}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-slate-600">
-                          {item.min_validity_days ? `${item.min_validity_days} days` : "—"}
-                        </td>
-                        <td className="px-3 py-2 text-slate-500">
-                          {item.condition_explanation || item.custom_instructions || "—"}
-                        </td>
-                        {canEdit && (
-                          <td className="px-3 py-2 text-right">
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              min={1}
+                              value={ruleValidity}
+                              onChange={(e) => setRuleValidity(e.target.value)}
+                              placeholder="Days"
+                              className="w-20 px-2 py-1 rounded border border-slate-300 bg-white text-xs"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              value={ruleInstructions}
+                              onChange={(e) => setRuleInstructions(e.target.value)}
+                              placeholder="Instructions / Condition..."
+                              className="w-full min-w-[160px] px-2 py-1 rounded border border-slate-300 bg-white text-xs"
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-right whitespace-nowrap space-x-1">
                             <button
                               type="button"
-                              onClick={() => removeItemFromActiveSet(idx)}
-                              disabled={activeItems.length <= 1}
-                              title="Remove from checklist"
-                              className="p-1 rounded text-red-600 hover:bg-red-50 disabled:opacity-30"
+                              onClick={saveEditRule}
+                              disabled={updateSetMutation.isPending}
+                              className="px-2.5 py-1 rounded bg-brand text-white text-xs font-medium"
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingRuleIdx(null)}
+                              className="px-2 py-1 rounded border border-slate-300 bg-white text-xs text-slate-600"
+                            >
+                              Cancel
                             </button>
                           </td>
-                        )}
-                      </tr>
-                    ))}
+                        </tr>
+                      ) : (
+                        <tr key={item.id}>
+                          {canEdit && (
+                            <td className="px-3 py-2">
+                              <input
+                                type="checkbox"
+                                aria-label={`Select ${item.document_type_name}`}
+                                checked={selectedRuleIds.includes(item.id)}
+                                onChange={() =>
+                                  setSelectedRuleIds((prev) =>
+                                    prev.includes(item.id)
+                                      ? prev.filter((id) => id !== item.id)
+                                      : [...prev, item.id]
+                                  )
+                                }
+                                className="rounded border-slate-300"
+                              />
+                            </td>
+                          )}
+                          <td className="px-3 py-2 font-mono text-slate-500">{item.display_order}</td>
+                          <td className="px-3 py-2 font-medium text-slate-900">
+                            {item.document_type_name}
+                          </td>
+                          <td className="px-3 py-2">
+                            {canEdit ? (
+                              <select
+                                value={item.requirement_level}
+                                onChange={(e) =>
+                                  changeItemLevel(
+                                    idx,
+                                    e.target.value as "REQUIRED" | "OPTIONAL" | "CONDITIONAL"
+                                  )
+                                }
+                                className="px-2 py-1 rounded border border-slate-200 bg-white text-xs font-medium text-slate-700"
+                              >
+                                <option value="REQUIRED">REQUIRED</option>
+                                <option value="CONDITIONAL">CONDITIONAL</option>
+                                <option value="OPTIONAL">OPTIONAL</option>
+                              </select>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">
+                                {item.requirement_level}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600">
+                            {item.min_validity_days ? `${item.min_validity_days} days` : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-slate-500">
+                            {item.condition_explanation || item.custom_instructions || "—"}
+                          </td>
+                          {canEdit && (
+                            <td className="px-3 py-2 text-right whitespace-nowrap space-x-1">
+                              <button
+                                type="button"
+                                onClick={() => startEditRule(idx)}
+                                title="Edit rule"
+                                className="p-1 rounded text-navy hover:bg-slate-100"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeItemFromActiveSet(idx)}
+                                disabled={activeItems.length <= 1}
+                                title="Remove from checklist"
+                                className="p-1 rounded text-red-600 hover:bg-red-50 disabled:opacity-30"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      )
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -855,55 +1085,110 @@ export default function RequirementsManagerPage() {
                 </div>
               )}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
               {docTypes.map((dt) => (
                 <div
                   key={dt.id}
                   className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 text-xs flex items-start justify-between gap-2"
                 >
-                  <div className="flex items-start gap-2 min-w-0 flex-1">
-                    {canEdit && (
+                  {editingDocTypeId === dt.id && canEdit ? (
+                    <div className="w-full space-y-2">
                       <input
-                        type="checkbox"
-                        aria-label={`Select ${dt.name}`}
-                        checked={selectedTypeIds.includes(dt.id)}
-                        onChange={() =>
-                          setSelectedTypeIds((prev) =>
-                            prev.includes(dt.id)
-                              ? prev.filter((id) => id !== dt.id)
-                              : [...prev, dt.id]
-                          )
-                        }
-                        className="mt-0.5 rounded border-slate-300 shrink-0"
+                        value={editDocTypeName}
+                        onChange={(e) => setEditDocTypeName(e.target.value)}
+                        placeholder="Document Type Name"
+                        className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 bg-white font-medium"
                       />
-                    )}
-                    <div className="min-w-0">
-                      <div className="font-semibold text-navy truncate">{dt.name}</div>
-                      <div className="font-mono text-[10px] text-slate-400 truncate">{dt.code}</div>
-                      {dt.aliases.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {dt.aliases.map((al) => (
-                            <span
-                              key={al.id}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[10px] text-slate-600"
-                            >
-                              <Tag className="h-2.5 w-2.5" />
-                              {al.alias_name}
-                            </span>
-                          ))}
+                      <input
+                        value={editDocTypeAliases}
+                        onChange={(e) => setEditDocTypeAliases(e.target.value)}
+                        placeholder="Aliases (comma-separated)"
+                        className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 bg-white"
+                      />
+                      <div className="flex justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateTypeMutation.mutate({
+                              id: dt.id,
+                              name: editDocTypeName.trim(),
+                              aliases: editDocTypeAliases
+                                .split(",")
+                                .map((s) => s.trim())
+                                .filter(Boolean),
+                            })
+                          }
+                          disabled={!editDocTypeName.trim() || updateTypeMutation.isPending}
+                          className="px-2.5 py-1 rounded bg-brand text-white text-[11px] font-medium disabled:opacity-50"
+                        >
+                          {updateTypeMutation.isPending ? "Saving..." : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingDocTypeId(null)}
+                          className="px-2.5 py-1 rounded border border-slate-300 bg-white text-[11px] text-slate-600"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-start gap-2 min-w-0 flex-1">
+                        {canEdit && (
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${dt.name}`}
+                            checked={selectedTypeIds.includes(dt.id)}
+                            onChange={() =>
+                              setSelectedTypeIds((prev) =>
+                                prev.includes(dt.id)
+                                  ? prev.filter((id) => id !== dt.id)
+                                  : [...prev, dt.id]
+                              )
+                            }
+                            className="mt-0.5 rounded border-slate-300 shrink-0"
+                          />
+                        )}
+                        <div className="min-w-0">
+                          <div className="font-semibold text-navy truncate">{dt.name}</div>
+                          <div className="font-mono text-[10px] text-slate-400 truncate">{dt.code}</div>
+                          {dt.aliases.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {dt.aliases.map((al) => (
+                                <span
+                                  key={al.id}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[10px] text-slate-600"
+                                >
+                                  <Tag className="h-2.5 w-2.5" />
+                                  {al.alias_name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {canEdit && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => startEditDocType(dt)}
+                            title="Edit Document Type"
+                            className="p-1 rounded border border-slate-200 bg-white text-navy hover:bg-slate-100"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteTypeMutation.mutate(dt.id)}
+                            title="Delete Document Type"
+                            className="p-1 rounded border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       )}
-                    </div>
-                  </div>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => deleteTypeMutation.mutate(dt.id)}
-                      title="Delete Document Type"
-                      className="p-1 rounded border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 shrink-0"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    </>
                   )}
                 </div>
               ))}

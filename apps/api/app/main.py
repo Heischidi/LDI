@@ -21,6 +21,7 @@ from app.api.routes import (
     reports,
     requirements,
     settings as settings_route,
+    sop,
     users,
 )
 from app.api.routes.reminders import process_due_personal_reminders
@@ -106,6 +107,7 @@ app.include_router(documents.router, prefix=prefix)
 app.include_router(processing.router, prefix=prefix)
 app.include_router(exports.router, prefix=prefix)
 app.include_router(reports.router, prefix=prefix)
+app.include_router(sop.router, prefix=prefix)
 app.include_router(users.router, prefix=prefix)
 app.include_router(reminders.router, prefix=prefix)
 app.include_router(audit.router, prefix=prefix)

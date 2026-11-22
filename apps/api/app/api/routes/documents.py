@@ -459,7 +459,29 @@ def review_or_correct_classification(
 
     cls = next((c for c in doc.classifications if c.is_current), None)
     if not cls:
-        raise HTTPException(status_code=400, detail="Document has not been classified yet.")
+        initial_code = (
+            payload.document_type_code.strip().upper()
+            if payload.document_type_code
+            else "ADDITIONAL_DOCUMENT"
+        )
+        dt_init = resolve_canonical_document_type(db, initial_code)
+        cls = DocumentClassification(
+            uploaded_document_id=doc.id,
+            document_type_id=dt_init.id if dt_init else None,
+            predicted_type_code=dt_init.code if dt_init else initial_code,
+            confidence=1.0,
+            confidence_tier="HIGH",
+            page_count=doc.page_count,
+            is_readable=True,
+            possible_issues=[],
+            classification_reason="Manually classified by processing officer.",
+            ai_provider="MANUAL",
+            ai_model="officer-edit",
+            status="CORRECTED",
+            is_current=True,
+        )
+        db.add(cls)
+        db.flush()
 
     prev_code = cls.predicted_type_code
     new_code = prev_code
@@ -525,7 +547,18 @@ def review_or_correct_classification(
         )
     )
 
+    db.flush()
+    db.expire(doc)
     sync_applicant_checklist_and_naming(db, doc.applicant_id)
+
+    if payload.custom_filename and payload.custom_filename.strip():
+        raw_name = payload.custom_filename.strip().replace("\\", "_").replace("/", "_")
+        ext = (doc.file_extension or "").lstrip(".")
+        if ext and not raw_name.lower().endswith(f".{ext.lower()}"):
+            raw_name = f"{raw_name}.{ext}"
+        proc = db.scalar(select(ProcessedDocument).where(ProcessedDocument.uploaded_document_id == doc.id))
+        if proc:
+            proc.generated_filename = raw_name
 
     record_audit_event(
         db,

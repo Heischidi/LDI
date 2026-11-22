@@ -2,11 +2,12 @@
 
 import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Shield, Trash2, UserCheck, UserPlus, UserX } from "lucide-react";
+import { KeyRound, Pencil, Shield, Trash2, UserCheck, UserPlus, UserX, X } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { ldiApi } from "@/lib/api-client";
 import { formatDateTime } from "@/lib/utils";
+import type { UserSummary } from "@/types";
 
 export default function StaffManagementPage() {
   const { hasRole, user: currentUser } = useAuth();
@@ -119,6 +120,54 @@ export default function StaffManagementPage() {
       qc.invalidateQueries({ queryKey: ["audit-logs"] });
     },
     onError: (err) => setErrorMsg(err instanceof Error ? err.message : "Failed to batch delete users"),
+  });
+
+  const [editingUser, setEditingUser] = useState<UserSummary | null>(null);
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
+  const [editUsername, setEditUsername] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editRoleName, setEditRoleName] = useState("OFFICER");
+  const [editIsActive, setEditIsActive] = useState(true);
+  const [editPassword, setEditPassword] = useState("");
+
+  const openEditUser = (u: UserSummary) => {
+    setEditingUser(u);
+    setEditFirstName(u.first_name);
+    setEditLastName(u.last_name);
+    setEditUsername(u.username || "");
+    setEditEmail(u.email);
+    setEditRoleName(u.role);
+    setEditIsActive(u.is_active);
+    setEditPassword("");
+    setErrorMsg(null);
+  };
+
+  const editUserMutation = useMutation({
+    mutationFn: () => {
+      if (!editingUser) throw new Error("No staff account selected.");
+      const payload: Record<string, unknown> = {
+        first_name: editFirstName.trim(),
+        last_name: editLastName.trim(),
+        username: editUsername.trim() || undefined,
+        email: editEmail.trim() || undefined,
+        role_name: editRoleName,
+        is_active: editIsActive,
+      };
+      if (editPassword.trim()) {
+        payload.password = editPassword.trim();
+      }
+      return ldiApi.updateUser(editingUser.id, payload);
+    },
+    onSuccess: (updated) => {
+      setEditingUser(null);
+      setEditPassword("");
+      setErrorMsg(null);
+      setStatusMsg(`Updated staff account for ${updated.first_name} ${updated.last_name} (${updated.username || updated.email}).`);
+      qc.invalidateQueries({ queryKey: ["staff-users"] });
+      qc.invalidateQueries({ queryKey: ["audit-logs"] });
+    },
+    onError: (err) => setErrorMsg(err instanceof Error ? err.message : "Failed to update staff account"),
   });
 
   const deletableIds = users.filter((u) => u.id !== currentUser?.id).map((u) => u.id);
@@ -359,6 +408,13 @@ export default function StaffManagementPage() {
                             <div className="inline-flex items-center justify-end gap-2">
                               <button
                                 type="button"
+                                onClick={() => openEditUser(u)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-200 text-navy hover:bg-slate-50 text-xs"
+                              >
+                                <Pencil className="h-3.5 w-3.5" /> Edit
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() => {
                                   setEditingPasswordUserId(u.id);
                                   setNewPassword("");
@@ -457,6 +513,131 @@ export default function StaffManagementPage() {
           </div>
         </div>
       </div>
+
+      {editingUser && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-navy">Edit Staff Account</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {editingUser.username || editingUser.email}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingUser(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                editUserMutation.mutate();
+              }}
+              className="p-5 space-y-3 text-xs"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">First Name *</label>
+                  <input
+                    required
+                    value={editFirstName}
+                    onChange={(e) => setEditFirstName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">Last Name *</label>
+                  <input
+                    required
+                    value={editLastName}
+                    onChange={(e) => setEditLastName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">Login Username</label>
+                  <input
+                    value={editUsername}
+                    onChange={(e) => setEditUsername(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">Staff Email *</label>
+                  <input
+                    type="email"
+                    required
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">Role</label>
+                  <select
+                    value={editRoleName}
+                    onChange={(e) => setEditRoleName(e.target.value)}
+                    disabled={editingUser.id === currentUser?.id}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white disabled:opacity-60"
+                  >
+                    <option value="OFFICER">OFFICER</option>
+                    <option value="ADMIN">ADMIN</option>
+                    <option value="VIEWER">VIEWER</option>
+                    <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+                    <option value="CEO">CEO</option>
+                  </select>
+                </div>
+                <label className="inline-flex items-center gap-2 py-2 text-xs text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editIsActive}
+                    onChange={(e) => setEditIsActive(e.target.checked)}
+                    disabled={editingUser.id === currentUser?.id}
+                    className="rounded border-slate-300"
+                  />
+                  Account Active
+                </label>
+              </div>
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">
+                  Reset Password (Optional)
+                </label>
+                <input
+                  type="password"
+                  value={editPassword}
+                  onChange={(e) => setEditPassword(e.target.value)}
+                  placeholder="Leave blank to keep existing password"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditingUser(null)}
+                  className="px-3.5 py-2 rounded-lg border border-slate-300 text-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editUserMutation.isPending}
+                  className="px-4 py-2 rounded-lg bg-brand text-white font-medium hover:bg-brand-light disabled:opacity-60"
+                >
+                  {editUserMutation.isPending ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

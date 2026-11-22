@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Download, Eye, FileCheck2, Trash2 } from "lucide-react";
+import { CheckCircle2, Download, Eye, FileCheck2, Pencil, Trash2, X } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { downloadAuthorizedFile, ldiApi } from "@/lib/api-client";
@@ -16,16 +16,67 @@ export default function ProcessedDocumentsPage() {
 
   const [approvedOnly, setApprovedOnly] = useState(false);
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
+  const [editingDoc, setEditingDoc] = useState<{
+    id: string;
+    original_filename: string;
+    generated_filename?: string | null;
+    predicted_type_code?: string | null;
+  } | null>(null);
+  const [editTypeCode, setEditTypeCode] = useState("");
+  const [editCustomFilename, setEditCustomFilename] = useState("");
+  const [editApplicantName, setEditApplicantName] = useState("");
+  const [editDocNumber, setEditDocNumber] = useState("");
+  const [editIssuer, setEditIssuer] = useState("");
+  const [editNotes, setEditNotes] = useState("");
 
   const { data: docs = [], isLoading } = useQuery({
     queryKey: ["processed-documents", approvedOnly],
     queryFn: () => ldiApi.listProcessedDocuments(approvedOnly ? "?approved_only=true" : ""),
   });
 
+  const { data: docTypes = [] } = useQuery({
+    queryKey: ["document-types"],
+    queryFn: ldiApi.listDocumentTypes,
+  });
+
   const refreshDocs = () => {
     qc.invalidateQueries({ queryKey: ["processed-documents"] });
     qc.invalidateQueries({ queryKey: ["applicant"] });
     qc.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+  };
+
+  const editDocMutation = useMutation({
+    mutationFn: () => {
+      if (!editingDoc) throw new Error("No document selected.");
+      return ldiApi.correctClassification(editingDoc.id, {
+        action: editTypeCode && editTypeCode !== editingDoc.predicted_type_code ? "CHANGE_TYPE" : "CORRECT_METADATA",
+        document_type_code: editTypeCode || undefined,
+        custom_filename: editCustomFilename.trim() || undefined,
+        extracted_applicant_name: editApplicantName.trim() || undefined,
+        document_number: editDocNumber.trim() || undefined,
+        issuing_authority: editIssuer.trim() || undefined,
+        notes: editNotes.trim() || "Edited in Processed Documents repository",
+      });
+    },
+    onSuccess: () => {
+      setEditingDoc(null);
+      refreshDocs();
+    },
+  });
+
+  const openEditModal = async (d: {
+    id: string;
+    original_filename: string;
+    generated_filename?: string | null;
+    predicted_type_code?: string | null;
+  }) => {
+    setEditingDoc(d);
+    setEditTypeCode(d.predicted_type_code || "ADDITIONAL_DOCUMENT");
+    setEditCustomFilename(d.generated_filename || d.original_filename);
+    setEditApplicantName("");
+    setEditDocNumber("");
+    setEditIssuer("");
+    setEditNotes("");
   };
 
   const deleteMutation = useMutation({
@@ -197,6 +248,16 @@ export default function ProcessedDocumentsPage() {
                     {canDelete && (
                       <button
                         type="button"
+                        onClick={() => openEditModal(d)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-200 text-navy hover:bg-slate-100"
+                      >
+                        <Pencil className="h-3 w-3" />
+                        Edit
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        type="button"
                         onClick={() => deleteMutation.mutate(d.id)}
                         title="Delete Document"
                         className="inline-flex items-center gap-1 px-2 py-1 rounded border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
@@ -212,6 +273,117 @@ export default function ProcessedDocumentsPage() {
           </table>
         </div>
       </div>
+
+      {editingDoc && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-navy">Edit Processed Document</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">{editingDoc.original_filename}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingDoc(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                editDocMutation.mutate();
+              }}
+              className="p-5 space-y-3 text-xs"
+            >
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">Document Type</label>
+                <select
+                  value={editTypeCode}
+                  onChange={(e) => setEditTypeCode(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                >
+                  {docTypes.map((dt) => (
+                    <option key={dt.id} value={dt.code}>
+                      {dt.name} ({dt.code})
+                    </option>
+                  ))}
+                  <option value="ADDITIONAL_DOCUMENT">Additional Document (ADDITIONAL_DOCUMENT)</option>
+                  <option value="UNKNOWN">Unknown / Unclassified (UNKNOWN)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">
+                  Standardized Export Filename
+                </label>
+                <input
+                  value={editCustomFilename}
+                  onChange={(e) => setEditCustomFilename(e.target.value)}
+                  placeholder="01_International_Passport.pdf"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">
+                    Extracted Applicant Name
+                  </label>
+                  <input
+                    value={editApplicantName}
+                    onChange={(e) => setEditApplicantName(e.target.value)}
+                    placeholder="Optional update"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">Document Number</label>
+                  <input
+                    value={editDocNumber}
+                    onChange={(e) => setEditDocNumber(e.target.value)}
+                    placeholder="Optional update"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">Issuing Authority</label>
+                <input
+                  value={editIssuer}
+                  onChange={(e) => setEditIssuer(e.target.value)}
+                  placeholder="Optional update"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">Audit / Review Notes</label>
+                <input
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  placeholder="Reason for edit..."
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditingDoc(null)}
+                  className="px-3.5 py-2 rounded-lg border border-slate-300 text-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editDocMutation.isPending}
+                  className="px-4 py-2 rounded-lg bg-brand text-white font-medium hover:bg-brand-light disabled:opacity-60"
+                >
+                  {editDocMutation.isPending ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

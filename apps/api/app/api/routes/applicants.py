@@ -700,8 +700,32 @@ def update_applicant(
         val = updates.pop("passport_number")
         app.passport_number = encrypt_sensitive_value(val.strip()) if val else None
 
+    profile_changed = any(
+        k in updates for k in ("destination_id", "purpose_id", "category_id", "applicant_type")
+    )
     for k, v in updates.items():
-        setattr(app, k, v)
+        if k == "email" and isinstance(v, str):
+            setattr(app, k, v.lower().strip())
+        elif k in {"first_name", "last_name", "nationality", "phone_number"} and isinstance(v, str):
+            setattr(app, k, v.strip())
+        else:
+            setattr(app, k, v)
+
+    if profile_changed:
+        req_set = find_matching_requirement_set(
+            db,
+            destination_id=app.destination_id,
+            purpose_id=app.purpose_id,
+            category_id=app.category_id,
+            applicant_type=app.applicant_type,
+        )
+        active_ver = get_active_version(req_set)
+        app.requirement_version_id = active_ver.id if active_ver else None
+        for old_row in db.scalars(
+            select(ApplicantDocumentStatus).where(ApplicantDocumentStatus.applicant_id == app.id)
+        ).all():
+            db.delete(old_row)
+        db.flush()
 
     sync_applicant_checklist_and_naming(db, app.id)
     record_audit_event(

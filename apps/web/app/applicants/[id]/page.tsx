@@ -15,10 +15,12 @@ import {
   FileText,
   FolderArchive,
   Mail,
+  Pencil,
   RefreshCw,
   Send,
   Trash2,
   UploadCloud,
+  X,
   XCircle,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
@@ -136,6 +138,132 @@ export default function ApplicantDetailPage() {
     },
   });
 
+  const [showEditApplicant, setShowEditApplicant] = useState(false);
+  const [appEditError, setAppEditError] = useState<string | null>(null);
+  const [appForm, setAppForm] = useState({
+    first_name: "",
+    middle_name: "",
+    last_name: "",
+    email: "",
+    phone_number: "",
+    nationality: "",
+    passport_number: "",
+    destination_id: "",
+    purpose_id: "",
+    category_id: "",
+    status: "NEW",
+  });
+
+  const { data: destinations = [] } = useQuery({
+    queryKey: ["destinations"],
+    queryFn: ldiApi.listDestinations,
+    enabled: showEditApplicant,
+  });
+  const { data: purposes = [] } = useQuery({
+    queryKey: ["purposes"],
+    queryFn: ldiApi.listPurposes,
+    enabled: showEditApplicant,
+  });
+  const { data: categories = [] } = useQuery({
+    queryKey: ["categories"],
+    queryFn: () => ldiApi.listCategories(),
+    enabled: showEditApplicant,
+  });
+
+  const openEditApplicantModal = () => {
+    if (!applicant) return;
+    setAppEditError(null);
+    setAppForm({
+      first_name: applicant.first_name,
+      middle_name: applicant.middle_name || "",
+      last_name: applicant.last_name,
+      email: applicant.email,
+      phone_number: applicant.phone_number,
+      nationality: applicant.nationality,
+      passport_number: "",
+      destination_id: applicant.destination.id,
+      purpose_id: applicant.purpose.id,
+      category_id: applicant.category.id,
+      status: applicant.status,
+    });
+    setShowEditApplicant(true);
+  };
+
+  const updateApplicantMutation = useMutation({
+    mutationFn: () => {
+      const payload: Record<string, unknown> = {
+        first_name: appForm.first_name.trim(),
+        middle_name: appForm.middle_name.trim() || null,
+        last_name: appForm.last_name.trim(),
+        email: appForm.email.trim(),
+        phone_number: appForm.phone_number.trim(),
+        nationality: appForm.nationality.trim(),
+        destination_id: appForm.destination_id,
+        purpose_id: appForm.purpose_id,
+        category_id: appForm.category_id,
+        status: appForm.status,
+      };
+      if (appForm.passport_number.trim()) {
+        payload.passport_number = appForm.passport_number.trim();
+      }
+      return ldiApi.updateApplicant(applicantId, payload);
+    },
+    onSuccess: () => {
+      setShowEditApplicant(false);
+      setAppEditError(null);
+      setStatusBanner("Applicant details updated and checklist synchronized.");
+      refreshAll();
+    },
+    onError: (err) => {
+      setAppEditError(err instanceof Error ? err.message : "Failed to update applicant");
+    },
+  });
+
+  const [editingDoc, setEditingDoc] = useState<DocumentRecord | null>(null);
+  const [editDocTypeCode, setEditDocTypeCode] = useState("ADDITIONAL_DOCUMENT");
+  const [editDocFilename, setEditDocFilename] = useState("");
+  const [editDocApplicantName, setEditDocApplicantName] = useState("");
+  const [editDocNumber, setEditDocNumber] = useState("");
+  const [editDocIssuer, setEditDocIssuer] = useState("");
+  const [editDocIssueDate, setEditDocIssueDate] = useState("");
+  const [editDocExpiryDate, setEditDocExpiryDate] = useState("");
+  const [editDocNotes, setEditDocNotes] = useState("");
+
+  const openEditDocModal = (doc: DocumentRecord) => {
+    setEditingDoc(doc);
+    setEditDocTypeCode(doc.classification?.predicted_type_code || "ADDITIONAL_DOCUMENT");
+    setEditDocFilename(doc.proposed_filename || doc.original_filename);
+    setEditDocApplicantName(doc.classification?.extracted_applicant_name || "");
+    setEditDocNumber(doc.classification?.document_number || "");
+    setEditDocIssuer(doc.classification?.issuing_authority || "");
+    setEditDocIssueDate(doc.classification?.issue_date || "");
+    setEditDocExpiryDate(doc.classification?.expiry_date || "");
+    setEditDocNotes("");
+  };
+
+  const saveDocEditMutation = useMutation({
+    mutationFn: () => {
+      if (!editingDoc) throw new Error("No document selected.");
+      const prevCode = editingDoc.classification?.predicted_type_code || "ADDITIONAL_DOCUMENT";
+      return ldiApi.correctClassification(editingDoc.id, {
+        action: editDocTypeCode !== prevCode ? "CHANGE_TYPE" : "CORRECT_METADATA",
+        document_type_code: editDocTypeCode,
+        custom_filename: editDocFilename.trim() || undefined,
+        extracted_applicant_name: editDocApplicantName.trim() || undefined,
+        document_number: editDocNumber.trim() || undefined,
+        issuing_authority: editDocIssuer.trim() || undefined,
+        issue_date: editDocIssueDate.trim() || undefined,
+        expiry_date: editDocExpiryDate.trim() || undefined,
+        notes: editDocNotes.trim() || "Document details edited by staff",
+      });
+    },
+    onSuccess: () => {
+      setEditingDoc(null);
+      setStatusBanner("Document classification, metadata & filename updated.");
+      refreshAll();
+    },
+  });
+
   const deleteApplicantMutation = useMutation({
     mutationFn: () => ldiApi.archiveApplicant(applicantId),
     onSuccess: () => {
@@ -248,6 +376,16 @@ export default function ApplicantDetailPage() {
               <FolderArchive className="h-4 w-4" />
               {exportMutation.isPending ? "Packaging..." : "Download Organised Folder"}
             </button>
+            {canDelete && (
+              <button
+                type="button"
+                onClick={openEditApplicantModal}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 bg-white text-navy text-sm font-medium hover:bg-slate-50"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit Applicant
+              </button>
+            )}
             {canDelete && (
               <button
                 type="button"
@@ -763,6 +901,16 @@ export default function ApplicantDetailPage() {
                             {canDelete && (
                               <button
                                 type="button"
+                                onClick={() => openEditDocModal(doc)}
+                                title="Edit Document & Metadata"
+                                className="p-1.5 rounded border border-slate-200 text-navy hover:bg-slate-100"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {canDelete && (
+                              <button
+                                type="button"
                                 onClick={() => deleteDocMutation.mutate(doc.id)}
                                 title="Delete Document"
                                 className="p-1.5 rounded border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
@@ -945,6 +1093,316 @@ export default function ApplicantDetailPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showEditApplicant && applicant && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-navy">Edit Applicant Details</h2>
+                <p className="text-xs text-slate-500">{applicant.application_reference}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowEditApplicant(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setAppEditError(null);
+                updateApplicantMutation.mutate();
+              }}
+              className="p-6 space-y-4 text-sm"
+            >
+              {appEditError && (
+                <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
+                  {appEditError}
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">First Name *</label>
+                  <input
+                    required
+                    value={appForm.first_name}
+                    onChange={(e) => setAppForm((f) => ({ ...f, first_name: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Middle Name</label>
+                  <input
+                    value={appForm.middle_name}
+                    onChange={(e) => setAppForm((f) => ({ ...f, middle_name: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Last Name *</label>
+                  <input
+                    required
+                    value={appForm.last_name}
+                    onChange={(e) => setAppForm((f) => ({ ...f, last_name: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Email *</label>
+                  <input
+                    type="email"
+                    required
+                    value={appForm.email}
+                    onChange={(e) => setAppForm((f) => ({ ...f, email: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Phone Number *</label>
+                  <input
+                    required
+                    value={appForm.phone_number}
+                    onChange={(e) => setAppForm((f) => ({ ...f, phone_number: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Nationality *</label>
+                  <input
+                    required
+                    value={appForm.nationality}
+                    onChange={(e) => setAppForm((f) => ({ ...f, nationality: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Update Passport No. (Optional)
+                  </label>
+                  <input
+                    value={appForm.passport_number}
+                    onChange={(e) => setAppForm((f) => ({ ...f, passport_number: e.target.value }))}
+                    placeholder="Leave blank to keep existing"
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Status</label>
+                  <select
+                    value={appForm.status}
+                    onChange={(e) => setAppForm((f) => ({ ...f, status: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
+                  >
+                    <option value="NEW">NEW</option>
+                    <option value="PROCESSING">PROCESSING</option>
+                    <option value="IN_REVIEW">IN_REVIEW</option>
+                    <option value="MISSING_DOCUMENTS">MISSING_DOCUMENTS</option>
+                    <option value="READY_FOR_EXPORT">READY_FOR_EXPORT</option>
+                    <option value="COMPLETED">COMPLETED</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Destination *</label>
+                  <select
+                    required
+                    value={appForm.destination_id}
+                    onChange={(e) => setAppForm((f) => ({ ...f, destination_id: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
+                  >
+                    {destinations.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Purpose *</label>
+                  <select
+                    required
+                    value={appForm.purpose_id}
+                    onChange={(e) => setAppForm((f) => ({ ...f, purpose_id: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
+                  >
+                    {purposes.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Category *</label>
+                  <select
+                    required
+                    value={appForm.category_id}
+                    onChange={(e) => setAppForm((f) => ({ ...f, category_id: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
+                  >
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowEditApplicant(false)}
+                  className="px-4 py-2 rounded-lg border border-slate-300 text-sm text-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={updateApplicantMutation.isPending}
+                  className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-light disabled:opacity-60"
+                >
+                  {updateApplicantMutation.isPending ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingDoc && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-navy">Edit Document & Metadata</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">{editingDoc.original_filename}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingDoc(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                saveDocEditMutation.mutate();
+              }}
+              className="p-5 space-y-3 text-xs"
+            >
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">Document Type</label>
+                <select
+                  value={editDocTypeCode}
+                  onChange={(e) => setEditDocTypeCode(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                >
+                  {docTypes.map((dt) => (
+                    <option key={dt.id} value={dt.code}>
+                      {dt.name} ({dt.code})
+                    </option>
+                  ))}
+                  <option value="ADDITIONAL_DOCUMENT">Additional Document (ADDITIONAL_DOCUMENT)</option>
+                  <option value="UNKNOWN">Unknown / Unclassified (UNKNOWN)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">
+                  Standardized Export Filename
+                </label>
+                <input
+                  value={editDocFilename}
+                  onChange={(e) => setEditDocFilename(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">
+                    Extracted Applicant Name
+                  </label>
+                  <input
+                    value={editDocApplicantName}
+                    onChange={(e) => setEditDocApplicantName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">Document Number</label>
+                  <input
+                    value={editDocNumber}
+                    onChange={(e) => setEditDocNumber(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">Issuing Authority</label>
+                <input
+                  value={editDocIssuer}
+                  onChange={(e) => setEditDocIssuer(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">Issue Date</label>
+                  <input
+                    value={editDocIssueDate}
+                    onChange={(e) => setEditDocIssueDate(e.target.value)}
+                    placeholder="YYYY-MM-DD"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">Expiry Date</label>
+                  <input
+                    value={editDocExpiryDate}
+                    onChange={(e) => setEditDocExpiryDate(e.target.value)}
+                    placeholder="YYYY-MM-DD"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">Audit / Review Notes</label>
+                <input
+                  value={editDocNotes}
+                  onChange={(e) => setEditDocNotes(e.target.value)}
+                  placeholder="Reason for metadata/classification edit..."
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditingDoc(null)}
+                  className="px-3.5 py-2 rounded-lg border border-slate-300 text-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saveDocEditMutation.isPending}
+                  className="px-4 py-2 rounded-lg bg-brand text-white font-medium hover:bg-brand-light disabled:opacity-60"
+                >
+                  {saveDocEditMutation.isPending ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

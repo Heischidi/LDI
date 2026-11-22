@@ -153,6 +153,11 @@ export const ldiApi = {
       body: JSON.stringify(payload),
     }),
   getApplicant: (id: string) => apiRequest<ApplicantDetail>(`/api/applicants/${id}`),
+  updateApplicant: (id: string, payload: Record<string, unknown>) =>
+    apiRequest<ApplicantDetail>(`/api/applicants/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
   getStageCatalog: () =>
     apiRequest<Record<string, import("@/types").StageMilestoneOption[]>>("/api/applicants/stages/catalog"),
   sendStageUpdate: (applicantId: string, payload: Record<string, unknown>) =>
@@ -194,6 +199,11 @@ export const ldiApi = {
   createDocumentType: (payload: Record<string, unknown>) =>
     apiRequest<DocumentType>("/api/requirements/document-types", {
       method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateDocumentType: (id: string, payload: Record<string, unknown>) =>
+    apiRequest<DocumentType>(`/api/requirements/document-types/${id}`, {
+      method: "PATCH",
       body: JSON.stringify(payload),
     }),
   deleteDocumentType: (id: string) =>
@@ -392,6 +402,31 @@ export const ldiApi = {
   batchDeleteReminders: (ids: string[]) =>
     apiRequest<{ message: string; deleted_count: number; deleted_ids: string[] }>(
       "/api/reminders/batch-delete",
+      { method: "POST", body: JSON.stringify({ ids }) }
+    ),
+
+  listSops: () =>
+    apiRequest<import("@/types").StatementOfPurposeItem[]>("/api/sop"),
+  generateSop: (payload: Record<string, unknown>) =>
+    apiRequest<import("@/types").StatementOfPurposeItem>("/api/sop/generate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateSop: (id: string, payload: Record<string, unknown>) =>
+    apiRequest<import("@/types").StatementOfPurposeItem>(`/api/sop/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  attachSopToApplicant: (sopId: string, applicantId?: string) =>
+    apiRequest<{ message: string; document_id: string; applicant_id: string }>(
+      `/api/sop/${sopId}/attach-to-applicant${applicantId ? `?applicant_id=${applicantId}` : ""}`,
+      { method: "POST" }
+    ),
+  deleteSop: (id: string) =>
+    apiRequest<{ message: string }>(`/api/sop/${id}`, { method: "DELETE" }),
+  batchDeleteSops: (ids: string[]) =>
+    apiRequest<{ message: string; deleted_count: number; deleted_ids: string[] }>(
+      "/api/sop/batch-delete",
       { method: "POST", body: JSON.stringify({ ids }) }
     ),
 

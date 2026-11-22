@@ -4,11 +4,12 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Plus, Search, Trash2, X } from "lucide-react";
+import { Eye, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { ldiApi } from "@/lib/api-client";
 import { formatDateTime, statusColorClasses } from "@/lib/utils";
+import type { ApplicantSummary } from "@/types";
 
 export default function ApplicantsPage() {
   const { hasRole } = useAuth();
@@ -106,6 +107,71 @@ export default function ApplicantsPage() {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
   const canDelete = hasRole("SUPER_ADMIN", "ADMIN", "OFFICER");
+
+  const [editingApp, setEditingApp] = useState<ApplicantSummary | null>(null);
+  const [editForm, setEditForm] = useState({
+    first_name: "",
+    middle_name: "",
+    last_name: "",
+    email: "",
+    phone_number: "",
+    nationality: "",
+    passport_number: "",
+    destination_id: "",
+    purpose_id: "",
+    category_id: "",
+    status: "NEW",
+  });
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const openEditApplicant = (app: ApplicantSummary) => {
+    setEditingApp(app);
+    setEditError(null);
+    setEditForm({
+      first_name: app.first_name,
+      middle_name: app.middle_name || "",
+      last_name: app.last_name,
+      email: app.email,
+      phone_number: app.phone_number,
+      nationality: app.nationality,
+      passport_number: "",
+      destination_id: app.destination.id,
+      purpose_id: app.purpose.id,
+      category_id: app.category.id,
+      status: app.status,
+    });
+  };
+
+  const updateApplicantMutation = useMutation({
+    mutationFn: () => {
+      if (!editingApp) throw new Error("No applicant selected.");
+      const payload: Record<string, unknown> = {
+        first_name: editForm.first_name.trim(),
+        middle_name: editForm.middle_name.trim() || null,
+        last_name: editForm.last_name.trim(),
+        email: editForm.email.trim(),
+        phone_number: editForm.phone_number.trim(),
+        nationality: editForm.nationality.trim(),
+        destination_id: editForm.destination_id,
+        purpose_id: editForm.purpose_id,
+        category_id: editForm.category_id,
+        status: editForm.status,
+      };
+      if (editForm.passport_number.trim()) {
+        payload.passport_number = editForm.passport_number.trim();
+      }
+      return ldiApi.updateApplicant(editingApp.id, payload);
+    },
+    onSuccess: () => {
+      setEditingApp(null);
+      setEditError(null);
+      qc.invalidateQueries({ queryKey: ["applicants"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+    },
+    onError: (err) => {
+      setEditError(err instanceof Error ? err.message : "Failed to update applicant");
+    },
+  });
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -297,6 +363,17 @@ export default function ApplicantsPage() {
                       <Eye className="h-3.5 w-3.5" />
                       Open
                     </Link>
+                    {canDelete && (
+                      <button
+                        type="button"
+                        onClick={() => openEditApplicant(app)}
+                        title="Edit Applicant"
+                        className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-navy hover:bg-slate-100"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit
+                      </button>
+                    )}
                     {canDelete && (
                       <button
                         type="button"
@@ -510,6 +587,189 @@ export default function ApplicantsPage() {
                   className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-light disabled:opacity-60"
                 >
                   {createMutation.isPending ? "Creating..." : "Create Applicant & Load Checklist"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingApp && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-navy">Edit Applicant Record</h2>
+                <p className="text-xs text-slate-500">{editingApp.application_reference}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingApp(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setEditError(null);
+                updateApplicantMutation.mutate();
+              }}
+              className="p-6 space-y-4 text-sm"
+            >
+              {editError && (
+                <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
+                  {editError}
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">First Name *</label>
+                  <input
+                    required
+                    value={editForm.first_name}
+                    onChange={(e) => setEditForm((f) => ({ ...f, first_name: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Middle Name</label>
+                  <input
+                    value={editForm.middle_name}
+                    onChange={(e) => setEditForm((f) => ({ ...f, middle_name: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Last Name *</label>
+                  <input
+                    required
+                    value={editForm.last_name}
+                    onChange={(e) => setEditForm((f) => ({ ...f, last_name: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Email *</label>
+                  <input
+                    type="email"
+                    required
+                    value={editForm.email}
+                    onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Phone Number *</label>
+                  <input
+                    required
+                    value={editForm.phone_number}
+                    onChange={(e) => setEditForm((f) => ({ ...f, phone_number: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Nationality *</label>
+                  <input
+                    required
+                    value={editForm.nationality}
+                    onChange={(e) => setEditForm((f) => ({ ...f, nationality: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Update Passport No. (Optional)
+                  </label>
+                  <input
+                    value={editForm.passport_number}
+                    onChange={(e) => setEditForm((f) => ({ ...f, passport_number: e.target.value }))}
+                    placeholder="Leave blank to keep existing"
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Status</label>
+                  <select
+                    value={editForm.status}
+                    onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
+                  >
+                    <option value="NEW">NEW</option>
+                    <option value="PROCESSING">PROCESSING</option>
+                    <option value="IN_REVIEW">IN_REVIEW</option>
+                    <option value="MISSING_DOCUMENTS">MISSING_DOCUMENTS</option>
+                    <option value="READY_FOR_EXPORT">READY_FOR_EXPORT</option>
+                    <option value="COMPLETED">COMPLETED</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Destination *</label>
+                  <select
+                    required
+                    value={editForm.destination_id}
+                    onChange={(e) => setEditForm((f) => ({ ...f, destination_id: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
+                  >
+                    {destinations.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Purpose *</label>
+                  <select
+                    required
+                    value={editForm.purpose_id}
+                    onChange={(e) => setEditForm((f) => ({ ...f, purpose_id: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
+                  >
+                    {purposes.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Category *</label>
+                  <select
+                    required
+                    value={editForm.category_id}
+                    onChange={(e) => setEditForm((f) => ({ ...f, category_id: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white"
+                  >
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditingApp(null)}
+                  className="px-4 py-2 rounded-lg border border-slate-300 text-sm text-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={updateApplicantMutation.isPending}
+                  className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-light disabled:opacity-60"
+                >
+                  {updateApplicantMutation.isPending ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>

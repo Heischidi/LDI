@@ -301,3 +301,27 @@ export interface PersonalReminderItem {
   created_at: string;
   updated_at: string;
 }
+
+export interface StatementOfPurposeItem {
+  id: string;
+  applicant_id?: string | null;
+  created_by_id?: string | null;
+  candidate_name: string;
+  university_name: string;
+  course_or_program: string;
+  degree_level: string;
+  entry_term: string;
+  destination_country: string;
+  academic_background?: string | null;
+  work_experience?: string | null;
+  career_goals?: string | null;
+  why_university?: string | null;
+  funding_and_ties?: string | null;
+  tone: string;
+  word_count_target: number;
+  generated_content: string;
+  ai_provider: string;
+  ai_model: string;
+  created_at: string;
+  updated_at: string;
+}

@@ -25,6 +25,7 @@ from app.schemas.requirements import (
     DocumentRequirementItemRead,
     DocumentTypeCreate,
     DocumentTypeRead,
+    DocumentTypeUpdate,
     RequirementSetCreate,
     RequirementSetRead,
     RequirementSetUpdate,
@@ -159,6 +160,67 @@ def create_document_type(
     db.commit()
     db.refresh(dt)
     return DocumentTypeRead.model_validate(dt)
+
+
+@router.patch("/document-types/{document_type_id}", response_model=DocumentTypeRead)
+def update_document_type(
+    document_type_id: str,
+    payload: DocumentTypeUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN)),
+) -> DocumentTypeRead:
+    """Update a canonical document type's metadata and search/classification aliases."""
+    dt = db.scalar(
+        select(DocumentType)
+        .options(joinedload(DocumentType.aliases))
+        .where(DocumentType.id == document_type_id)
+    )
+    if not dt:
+        raise HTTPException(status_code=404, detail="Document type not found.")
+
+    if payload.name is not None:
+        dt.name = payload.name.strip()
+    if payload.category is not None:
+        dt.category = payload.category.strip().upper()
+    if payload.default_order is not None:
+        dt.default_order = payload.default_order
+    if payload.has_expiry is not None:
+        dt.has_expiry = payload.has_expiry
+    if payload.min_validity_days is not None:
+        dt.min_validity_days = payload.min_validity_days
+    if payload.naming_prefix is not None:
+        dt.naming_prefix = payload.naming_prefix.strip()
+    if payload.description is not None:
+        dt.description = payload.description
+
+    if payload.aliases is not None:
+        db.execute(delete(DocumentAlias).where(DocumentAlias.document_type_id == dt.id))
+        db.flush()
+        seen_aliases: set[str] = set()
+        for raw_alias in payload.aliases:
+            clean = raw_alias.strip()
+            if clean and clean.lower() not in seen_aliases:
+                seen_aliases.add(clean.lower())
+                db.add(DocumentAlias(document_type_id=dt.id, alias_name=clean))
+
+    record_audit_event(
+        db,
+        action="DOCUMENT_TYPE_UPDATED",
+        entity_type="document_type",
+        entity_id=dt.id,
+        actor=current_user,
+        metadata={"name": dt.name},
+        request=request,
+    )
+    db.commit()
+    db.expire_all()
+    loaded = db.scalar(
+        select(DocumentType)
+        .options(joinedload(DocumentType.aliases))
+        .where(DocumentType.id == dt.id)
+    )
+    return DocumentTypeRead.model_validate(loaded)
 
 
 @router.post("/document-types/{document_type_id}/aliases", response_model=DocumentAliasRead, status_code=201)

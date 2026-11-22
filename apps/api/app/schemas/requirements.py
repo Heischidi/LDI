@@ -26,6 +26,17 @@ class DocumentTypeCreate(BaseModel):
     aliases: list[str] = Field(default_factory=list)
 
 
+class DocumentTypeUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=150)
+    category: str | None = None
+    default_order: int | None = None
+    has_expiry: bool | None = None
+    min_validity_days: int | None = None
+    naming_prefix: str | None = None
+    description: str | None = None
+    aliases: list[str] | None = None
+
+
 class DocumentTypeRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str

@@ -2,11 +2,12 @@
 
 import React, { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellRing, CheckCircle2, Clock, Mail, Plus, RotateCcw, Send, Trash2 } from "lucide-react";
+import { BellRing, CheckCircle2, Clock, Mail, Pencil, Plus, RotateCcw, Save, Send, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { ldiApi } from "@/lib/api-client";
 import { formatDateTime } from "@/lib/utils";
+import type { PersonalReminderItem } from "@/types";
 
 export default function RemindersPage() {
   const { user } = useAuth();
@@ -20,6 +21,12 @@ export default function RemindersPage() {
   const [eveningTime, setEveningTime] = useState("17:00");
   const [sendImmediately, setSendImmediately] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editMorning, setEditMorning] = useState("09:00");
+  const [editEvening, setEditEvening] = useState("17:00");
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -75,6 +82,35 @@ export default function RemindersPage() {
       refresh();
     },
   });
+
+  const updateReminderMutation = useMutation({
+    mutationFn: () => {
+      if (!editingId) throw new Error("No reminder selected.");
+      return ldiApi.updateReminder(editingId, {
+        title: editTitle.trim(),
+        notes: editNotes.trim() || "",
+        recipient_email: editEmail.trim(),
+        morning_time: editMorning,
+        evening_time: editEvening,
+      });
+    },
+    onSuccess: (updated) => {
+      setEditingId(null);
+      setErrorMsg(null);
+      setStatusMsg(`Updated reminder "${updated.title}".`);
+      refresh();
+    },
+    onError: (err) => setErrorMsg(err instanceof Error ? err.message : "Failed to update reminder"),
+  });
+
+  const startEditReminder = (rem: PersonalReminderItem) => {
+    setEditingId(rem.id);
+    setEditTitle(rem.title);
+    setEditNotes(rem.notes || "");
+    setEditEmail(rem.recipient_email);
+    setEditMorning(rem.morning_time);
+    setEditEvening(rem.evening_time);
+  };
 
   const sendNowMutation = useMutation({
     mutationFn: ldiApi.sendReminderNow,
@@ -269,101 +305,185 @@ export default function RemindersPage() {
                     rem.is_completed ? "bg-slate-50/70 opacity-75" : ""
                   }`}
                 >
-                  <div className="flex items-start gap-3 min-w-0 flex-1">
-                    <input
-                      type="checkbox"
-                      aria-label={`Select ${rem.title}`}
-                      checked={selectedIds.includes(rem.id)}
-                      onChange={() =>
-                        setSelectedIds((prev) =>
-                          prev.includes(rem.id)
-                            ? prev.filter((id) => id !== rem.id)
-                            : [...prev, rem.id]
-                        )
-                      }
-                      className="mt-1 rounded border-slate-300 shrink-0"
-                    />
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span
-                          className={`text-sm font-semibold ${
-                            rem.is_completed ? "line-through text-slate-500" : "text-navy"
-                          }`}
-                        >
-                          {rem.title}
-                        </span>
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${
-                            rem.is_completed
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                              : "bg-amber-50 text-amber-800 border-amber-200"
-                          }`}
-                        >
-                          {rem.is_completed ? "Completed" : `Active · ${rem.morning_time} & ${rem.evening_time} UTC`}
-                        </span>
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-medium">
-                          <Mail className="h-2.5 w-2.5" /> Sent {rem.send_count}x
-                        </span>
+                  {editingId === rem.id ? (
+                    <div className="w-full space-y-3 bg-slate-50 rounded-lg border border-slate-200 p-3.5">
+                      <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+                        <div className="md:col-span-2">
+                          <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                            Reminder Title
+                          </label>
+                          <input
+                            value={editTitle}
+                            onChange={(e) => setEditTitle(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-300 bg-white"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                            Personal Email
+                          </label>
+                          <input
+                            type="email"
+                            value={editEmail}
+                            onChange={(e) => setEditEmail(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-300 bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                            Morning (UTC)
+                          </label>
+                          <input
+                            type="time"
+                            value={editMorning}
+                            onChange={(e) => setEditMorning(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-300 bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                            Evening (UTC)
+                          </label>
+                          <input
+                            type="time"
+                            value={editEvening}
+                            onChange={(e) => setEditEvening(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-300 bg-white"
+                          />
+                        </div>
                       </div>
-                      {rem.notes && <p className="text-xs text-slate-600">{rem.notes}</p>}
-                      <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
-                        <span>To: <strong className="text-slate-700">{rem.recipient_email}</strong></span>
-                        {rem.last_delivery_status && (
-                          <span>
-                            Last Status: <strong>{rem.last_delivery_status}</strong> ({rem.last_delivery_provider})
-                          </span>
-                        )}
-                        {!rem.is_completed && rem.next_send_at && (
-                          <span className="inline-flex items-center gap-1 text-navy">
-                            <Clock className="h-3 w-3" /> Next Send: {formatDateTime(rem.next_send_at)}
-                          </span>
-                        )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          value={editNotes}
+                          onChange={(e) => setEditNotes(e.target.value)}
+                          placeholder="Notes / context..."
+                          className="flex-1 min-w-[220px] px-2.5 py-1.5 text-xs rounded border border-slate-300 bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => updateReminderMutation.mutate()}
+                          disabled={!editTitle.trim() || !editEmail.trim() || updateReminderMutation.isPending}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-medium hover:bg-brand-light disabled:opacity-50"
+                        >
+                          <Save className="h-3.5 w-3.5" />
+                          {updateReminderMutation.isPending ? "Saving..." : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingId(null)}
+                          className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs text-slate-700"
+                        >
+                          Cancel
+                        </button>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <>
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${rem.title}`}
+                          checked={selectedIds.includes(rem.id)}
+                          onChange={() =>
+                            setSelectedIds((prev) =>
+                              prev.includes(rem.id)
+                                ? prev.filter((id) => id !== rem.id)
+                                : [...prev, rem.id]
+                            )
+                          }
+                          className="mt-1 rounded border-slate-300 shrink-0"
+                        />
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`text-sm font-semibold ${
+                                rem.is_completed ? "line-through text-slate-500" : "text-navy"
+                              }`}
+                            >
+                              {rem.title}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${
+                                rem.is_completed
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                  : "bg-amber-50 text-amber-800 border-amber-200"
+                              }`}
+                            >
+                              {rem.is_completed ? "Completed" : `Active · ${rem.morning_time} & ${rem.evening_time} UTC`}
+                            </span>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-medium">
+                              <Mail className="h-2.5 w-2.5" /> Sent {rem.send_count}x
+                            </span>
+                          </div>
+                          {rem.notes && <p className="text-xs text-slate-600">{rem.notes}</p>}
+                          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+                            <span>To: <strong className="text-slate-700">{rem.recipient_email}</strong></span>
+                            {rem.last_delivery_status && (
+                              <span>
+                                Last Status: <strong>{rem.last_delivery_status}</strong> ({rem.last_delivery_provider})
+                              </span>
+                            )}
+                            {!rem.is_completed && rem.next_send_at && (
+                              <span className="inline-flex items-center gap-1 text-navy">
+                                <Clock className="h-3 w-3" /> Next Send: {formatDateTime(rem.next_send_at)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
 
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    {!rem.is_completed && (
-                      <button
-                        type="button"
-                        onClick={() => sendNowMutation.mutate(rem.id)}
-                        disabled={sendNowMutation.isPending}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-navy hover:bg-slate-50 text-xs font-medium"
-                      >
-                        <Send className="h-3.5 w-3.5" />
-                        Send Now
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        toggleDoneMutation.mutate({ id: rem.id, is_completed: !rem.is_completed })
-                      }
-                      className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${
-                        rem.is_completed
-                          ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                          : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                      }`}
-                    >
-                      {rem.is_completed ? (
-                        <>
-                          <RotateCcw className="h-3.5 w-3.5" /> Reopen
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Mark Done
-                        </>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteMutation.mutate(rem.id)}
-                      title="Delete Reminder"
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 text-xs font-medium"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" /> Delete
-                    </button>
-                  </div>
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {!rem.is_completed && (
+                          <button
+                            type="button"
+                            onClick={() => sendNowMutation.mutate(rem.id)}
+                            disabled={sendNowMutation.isPending}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-navy hover:bg-slate-50 text-xs font-medium"
+                          >
+                            <Send className="h-3.5 w-3.5" />
+                            Send Now
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => startEditReminder(rem)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-navy hover:bg-slate-50 text-xs font-medium"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleDoneMutation.mutate({ id: rem.id, is_completed: !rem.is_completed })
+                          }
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${
+                            rem.is_completed
+                              ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          }`}
+                        >
+                          {rem.is_completed ? (
+                            <>
+                              <RotateCcw className="h-3.5 w-3.5" /> Reopen
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="h-3.5 w-3.5" /> Mark Done
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteMutation.mutate(rem.id)}
+                          title="Delete Reminder"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 text-xs font-medium"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> Delete
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>

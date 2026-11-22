@@ -745,3 +745,40 @@ class PersonalReminder(Base):
     )
 
     user: Mapped["User"] = relationship("User")
+
+
+class StatementOfPurpose(Base):
+    __tablename__ = "statements_of_purpose"
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=_uuid_str)
+    applicant_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey("applicants.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_by_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    candidate_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    university_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    course_or_program: Mapped[str] = mapped_column(String(255), nullable=False)
+    degree_level: Mapped[str] = mapped_column(String(100), default="Master's", nullable=False)
+    entry_term: Mapped[str] = mapped_column(String(100), nullable=False)
+    destination_country: Mapped[str] = mapped_column(String(120), nullable=False)
+    academic_background: Mapped[str | None] = mapped_column(Text, nullable=True)
+    work_experience: Mapped[str | None] = mapped_column(Text, nullable=True)
+    career_goals: Mapped[str | None] = mapped_column(Text, nullable=True)
+    why_university: Mapped[str | None] = mapped_column(Text, nullable=True)
+    funding_and_ties: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tone: Mapped[str] = mapped_column(String(60), default="ACADEMIC_PROFESSIONAL", nullable=False)
+    word_count_target: Mapped[int] = mapped_column(Integer, default=750, nullable=False)
+    generated_content: Mapped[str] = mapped_column(Text, nullable=False)
+    ai_provider: Mapped[str] = mapped_column(String(60), default="CHIDI_AI_SOP_ENGINE", nullable=False)
+    ai_model: Mapped[str] = mapped_column(String(100), default="chidi-sop-v1", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    applicant: Mapped["Applicant | None"] = relationship("Applicant")
+    created_by: Mapped["User | None"] = relationship("User")

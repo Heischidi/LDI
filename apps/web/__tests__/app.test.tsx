@@ -54,7 +54,15 @@ describe("Leaders Document Intelligence Frontend Workflows", () => {
   it("renders login form and validates submission", async () => {
     renderWithQuery(<LoginPage />);
     expect(screen.getByText("Staff Sign In")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Processing Officer"));
+    expect(screen.queryByText(/superadmin@leaders\.edu/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Seeded Staff Accounts/i)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText(/Enter your username or staff email/i), {
+      target: { value: "officer@leaders.edu" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("••••••••••••"), {
+      target: { value: "LeadersOfficer!2026" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /Sign In to Workspace/i }));
     await waitFor(() => {
       expect(mockLogin).toHaveBeenCalledWith("officer@leaders.edu", "LeadersOfficer!2026");

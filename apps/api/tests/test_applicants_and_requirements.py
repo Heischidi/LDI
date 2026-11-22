@@ -386,3 +386,169 @@ def test_single_and_batch_delete_across_endpoints(client: TestClient):
     assert bdel_u.json()["deleted_count"] == 1
     me_super = client.get("/api/auth/me", headers=super_hdrs).json()
     assert client.delete(f"/api/users/{me_super['id']}", headers=super_hdrs).status_code == 400
+
+
+def test_sop_generation_edit_export_attach_and_edit_endpoints(client: TestClient):
+    from tests.conftest import make_searchable_pdf
+
+    super_hdrs = auth_headers(client, "superadmin@leaders.edu", "LeadersAdmin!2026")
+
+    # 1. Edit staff user (name, username, email)
+    staff = client.post(
+        "/api/users",
+        json={"first_name": "Kola", "last_name": "Bello", "password": "Pass1234"},
+        headers=super_hdrs,
+    )
+    assert staff.status_code == 201, staff.text
+    staff_id = staff.json()["id"]
+    upd_staff = client.patch(
+        f"/api/users/{staff_id}",
+        json={
+            "first_name": "Kolawole",
+            "last_name": "Bello",
+            "username": "bellokw",
+            "email": "kola.bello@leaders.edu",
+        },
+        headers=super_hdrs,
+    )
+    assert upd_staff.status_code == 200, upd_staff.text
+    assert upd_staff.json()["username"] == "bellokw"
+    assert upd_staff.json()["email"] == "kola.bello@leaders.edu"
+
+    # 2. Edit canonical document type (name & aliases)
+    dt_res = client.post(
+        "/api/requirements/document-types",
+        json={"name": "Editable Type", "code": "EDITABLE_TYPE_X", "aliases": ["old alias"]},
+        headers=super_hdrs,
+    )
+    assert dt_res.status_code == 201, dt_res.text
+    dt_id = dt_res.json()["id"]
+    dt_upd = client.patch(
+        f"/api/requirements/document-types/{dt_id}",
+        json={"name": "Editable Type Renamed", "aliases": ["new alias", "second alias"]},
+        headers=super_hdrs,
+    )
+    assert dt_upd.status_code == 200, dt_upd.text
+    assert dt_upd.json()["name"] == "Editable Type Renamed"
+    assert {a["alias_name"] for a in dt_upd.json()["aliases"]} == {"new alias", "second alias"}
+
+    # 3. Create applicant, upload document, edit applicant + document filename/metadata
+    dests = {d["code"]: d for d in client.get("/api/reference/destinations", headers=super_hdrs).json()}
+    purps = {p["code"]: p for p in client.get("/api/reference/purposes", headers=super_hdrs).json()}
+    cats = {c["code"]: c for c in client.get("/api/reference/categories", headers=super_hdrs).json()}
+    created_app = client.post(
+        "/api/applicants",
+        json={
+            "first_name": "Ada",
+            "last_name": "Chukwu",
+            "email": "ada.chukwu@example.com",
+            "phone_number": "+2348011112222",
+            "nationality": "Nigerian",
+            "destination_id": dests["GB"]["id"],
+            "purpose_id": purps["STUDY"]["id"],
+            "category_id": cats["STUDENT_VISA"]["id"],
+        },
+        headers=super_hdrs,
+    )
+    assert created_app.status_code == 201, created_app.text
+    app_id = created_app.json()["id"]
+
+    upd_app = client.patch(
+        f"/api/applicants/{app_id}",
+        json={"first_name": "Adaeze", "status": "PROCESSING"},
+        headers=super_hdrs,
+    )
+    assert upd_app.status_code == 200, upd_app.text
+    assert upd_app.json()["first_name"] == "Adaeze"
+    assert upd_app.json()["status"] == "PROCESSING"
+
+    sample_pdf = make_searchable_pdf(
+        ["Statement of Purpose for UK University Master of Science Computer Science."]
+    )
+    up_res = client.post(
+        "/api/documents/upload",
+        data={"applicant_id": app_id},
+        files=[("files", ("draft_file.pdf", sample_pdf, "application/pdf"))],
+        headers=super_hdrs,
+    )
+    assert up_res.status_code == 201, up_res.text
+    doc_id = up_res.json()["documents"][0]["id"]
+    corr_res = client.patch(
+        f"/api/documents/{doc_id}/classification",
+        json={
+            "action": "CHANGE_TYPE",
+            "document_type_code": "STATEMENT_OF_PURPOSE",
+            "custom_filename": "08_Custom_SOP_Renamed.pdf",
+            "document_number": "SOP-991",
+            "issuing_authority": "Applicant",
+        },
+        headers=super_hdrs,
+    )
+    assert corr_res.status_code == 200, corr_res.text
+    assert corr_res.json()["proposed_filename"] == "08_Custom_SOP_Renamed.pdf"
+    assert corr_res.json()["classification"]["document_number"] == "SOP-991"
+
+    # 4. Generate, edit, regenerate, export PDF & DOCX, attach to applicant, and delete SOPs
+    gen1 = client.post(
+        "/api/sop/generate",
+        json={
+            "applicant_id": app_id,
+            "candidate_name": "Adaeze Chukwu",
+            "destination_country": "United Kingdom",
+            "university_name": "University of Manchester",
+            "course_or_program": "MSc Data Science",
+            "degree_level": "Postgraduate / Master's",
+            "entry_term": "September 2026",
+            "academic_background": "First Class BSc Mathematics at University of Lagos.",
+            "career_goals": "Lead AI Risk Analyst at a regulated financial firm in Lagos.",
+        },
+        headers=super_hdrs,
+    )
+    assert gen1.status_code == 201, gen1.text
+    sop1 = gen1.json()
+    assert sop1["university_name"] == "University of Manchester"
+    assert len(sop1["generated_content"]) > 200
+
+    upd_sop = client.patch(
+        f"/api/sop/{sop1['id']}",
+        json={"course_or_program": "MSc Artificial Intelligence", "regenerate": True},
+        headers=super_hdrs,
+    )
+    assert upd_sop.status_code == 200, upd_sop.text
+    assert "MSc Artificial Intelligence" in upd_sop.json()["generated_content"]
+
+    pdf_exp = client.get(f"/api/sop/{sop1['id']}/export?format=pdf", headers=super_hdrs)
+    assert pdf_exp.status_code == 200
+    assert pdf_exp.content.startswith(b"%PDF")
+
+    docx_exp = client.get(f"/api/sop/{sop1['id']}/export?format=docx", headers=super_hdrs)
+    assert docx_exp.status_code == 200
+    assert docx_exp.content.startswith(b"PK")
+
+    attach_res = client.post(
+        f"/api/sop/{sop1['id']}/attach-to-applicant?applicant_id={app_id}",
+        headers=super_hdrs,
+    )
+    assert attach_res.status_code == 200, attach_res.text
+    app_after = client.get(f"/api/applicants/{app_id}", headers=super_hdrs).json()
+    sop_item = [c for c in app_after["checklist"] if c["document_type_code"] == "STATEMENT_OF_PURPOSE"]
+    assert sop_item and sop_item[0]["status"] == "FOUND"
+
+    gen2 = client.post(
+        "/api/sop/generate",
+        json={
+            "candidate_name": "Bola Ade",
+            "destination_country": "Canada",
+            "university_name": "University of Toronto",
+            "course_or_program": "BSc Computer Science",
+            "entry_term": "January 2027",
+        },
+        headers=super_hdrs,
+    )
+    assert gen2.status_code == 201, gen2.text
+    sop2_id = gen2.json()["id"]
+
+    assert client.delete(f"/api/sop/{sop1['id']}", headers=super_hdrs).status_code == 200
+    bdel_sop = client.post("/api/sop/batch-delete", json={"ids": [sop2_id]}, headers=super_hdrs)
+    assert bdel_sop.status_code == 200
+    assert bdel_sop.json()["deleted_count"] == 1
