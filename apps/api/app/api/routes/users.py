@@ -11,6 +11,7 @@ from app.core.security import hash_password
 from app.models.entities import (
     Applicant,
     AuditLog,
+    ClientBirthday,
     ClientStageUpdate,
     DocumentReview,
     ExportPackage,
@@ -225,6 +226,11 @@ def _unlink_user_references(db: Session, user_ids: list[str]) -> None:
     db.execute(
         update(StatementOfPurpose)
         .where(StatementOfPurpose.created_by_id.in_(user_ids))
+        .values(created_by_id=None)
+    )
+    db.execute(
+        update(ClientBirthday)
+        .where(ClientBirthday.created_by_id.in_(user_ids))
         .values(created_by_id=None)
     )
     db.execute(delete(PersonalReminder).where(PersonalReminder.user_id.in_(user_ids)))

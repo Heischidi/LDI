@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   BellRing,
+  Cake,
   ClipboardCheck,
   FileCheck2,
   FolderCog,
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { href: "/applicants", label: "Applicants", icon: Users, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
   { href: "/processing", label: "Document Processing", icon: UploadCloud, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER"] },
   { href: "/sop-generator", label: "SOP Generator (AI)", icon: Sparkles, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER"] },
+  { href: "/birthdays", label: "Client Birthdays", icon: Cake, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER"] },
   { href: "/requirements", label: "Requirements Manager", icon: ClipboardCheck, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
   { href: "/processed-documents", label: "Processed Documents", icon: FileCheck2, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },
   { href: "/reports", label: "Reports", icon: BarChart3, roles: ["CEO", "SUPER_ADMIN", "ADMIN", "OFFICER", "VIEWER"] },

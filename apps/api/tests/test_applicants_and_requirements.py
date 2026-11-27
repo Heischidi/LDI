@@ -681,3 +681,82 @@ def test_settings_test_email_brevo_and_audit_redaction(client: TestClient, monke
     assert t2.json()["delivery_status"] == "SENT_BREVO"
     assert t2.json()["delivery_provider"] == "BREVO"
     assert "brevo-msg-99" in t2.json()["delivery_detail"]
+
+
+def test_client_birthdays_crud_yearly_automation_and_batch_delete(client: TestClient):
+    from datetime import date, datetime, timedelta, timezone
+
+    officer_hdrs = auth_headers(client, "officer@leaders.edu", "LeadersOfficer!2026")
+    today = datetime.now(timezone.utc).date()
+    other_day = today + timedelta(days=20)
+    bday_today_str = date(1996, today.month, today.day).isoformat()
+    bday_future_str = date(1994, other_day.month, other_day.day).isoformat()
+
+    # 1. Create today's birthday with send_if_today=False, then trigger process-due (should send once/year)
+    c1 = client.post(
+        "/api/birthdays",
+        json={
+            "client_name": "Amara Okafor",
+            "client_email": "amara.okafor@example.com",
+            "birth_date": bday_today_str,
+            "custom_message": "Happy Birthday Amara!",
+            "send_if_today": False,
+        },
+        headers=officer_hdrs,
+    )
+    assert c1.status_code == 201, c1.text
+    b1_id = c1.json()["id"]
+    assert c1.json()["is_birthday_today"] is True
+    assert c1.json()["send_count"] == 0
+
+    proc1 = client.post("/api/birthdays/process-due", headers=officer_hdrs)
+    assert proc1.status_code == 200
+    assert proc1.json()["processed_count"] == 1
+
+    # Idempotent: second process-due in same year skips already-sent client
+    proc2 = client.post("/api/birthdays/process-due", headers=officer_hdrs)
+    assert proc2.status_code == 200
+    assert proc2.json()["processed_count"] == 0
+
+    items = client.get("/api/birthdays", headers=officer_hdrs).json()
+    amara = next(x for x in items if x["id"] == b1_id)
+    assert amara["send_count"] == 1
+    assert amara["last_sent_year"] == today.year
+
+    # 2. Future birthday + manual Send Now does not suppress future yearly automation
+    c2 = client.post(
+        "/api/birthdays",
+        json={
+            "client_name": "Chidi Nwosu",
+            "client_email": "chidi.nwosu@example.com",
+            "birth_date": bday_future_str,
+        },
+        headers=officer_hdrs,
+    )
+    assert c2.status_code == 201, c2.text
+    b2_id = c2.json()["id"]
+    sent_now = client.post(f"/api/birthdays/{b2_id}/send-now", headers=officer_hdrs)
+    assert sent_now.status_code == 200
+    assert sent_now.json()["send_count"] == 1
+    assert sent_now.json()["last_sent_year"] is None
+
+    # 3. Edit client birthday fields + pause automation
+    upd = client.patch(
+        f"/api/birthdays/{b2_id}",
+        json={
+            "client_name": "Chidi Nwosu Jr",
+            "client_email": "chidi.jr@example.com",
+            "is_active": False,
+        },
+        headers=officer_hdrs,
+    )
+    assert upd.status_code == 200
+    assert upd.json()["client_name"] == "Chidi Nwosu Jr"
+    assert upd.json()["client_email"] == "chidi.jr@example.com"
+    assert upd.json()["is_active"] is False
+
+    # 4. Single delete & batch delete
+    assert client.delete(f"/api/birthdays/{b1_id}", headers=officer_hdrs).status_code == 200
+    bdel = client.post("/api/birthdays/batch-delete", json={"ids": [b2_id]}, headers=officer_hdrs)
+    assert bdel.status_code == 200
+    assert bdel.json()["deleted_count"] == 1

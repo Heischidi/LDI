@@ -785,3 +785,35 @@ class StatementOfPurpose(Base):
 
     applicant: Mapped["Applicant | None"] = relationship("Applicant")
     created_by: Mapped["User | None"] = relationship("User")
+
+
+class ClientBirthday(Base):
+    __tablename__ = "client_birthdays"
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=_uuid_str)
+    applicant_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey("applicants.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_by_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    client_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    client_email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    birth_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    custom_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    last_sent_year: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    send_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_delivery_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    last_delivery_provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    last_delivery_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    applicant: Mapped["Applicant | None"] = relationship("Applicant")
+    created_by: Mapped["User | None"] = relationship("User")

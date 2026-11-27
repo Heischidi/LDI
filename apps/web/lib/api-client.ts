@@ -513,4 +513,32 @@ export const ldiApi = {
       method: "POST",
       body: JSON.stringify({ to_email }),
     }),
+
+  listBirthdays: () =>
+    apiRequest<import("@/types").ClientBirthdayItem[]>("/api/birthdays"),
+  createBirthday: (payload: Record<string, unknown>) =>
+    apiRequest<import("@/types").ClientBirthdayItem>("/api/birthdays", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateBirthday: (id: string, payload: Record<string, unknown>) =>
+    apiRequest<import("@/types").ClientBirthdayItem>(`/api/birthdays/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  sendBirthdayNow: (id: string) =>
+    apiRequest<import("@/types").ClientBirthdayItem>(`/api/birthdays/${id}/send-now`, {
+      method: "POST",
+    }),
+  processDueBirthdays: () =>
+    apiRequest<{ processed_count: number }>("/api/birthdays/process-due", {
+      method: "POST",
+    }),
+  deleteBirthday: (id: string) =>
+    apiRequest<{ message: string }>(`/api/birthdays/${id}`, { method: "DELETE" }),
+  batchDeleteBirthdays: (ids: string[]) =>
+    apiRequest<{ message: string; deleted_count: number; deleted_ids: string[] }>(
+      "/api/birthdays/batch-delete",
+      { method: "POST", body: JSON.stringify({ ids }) }
+    ),
 };

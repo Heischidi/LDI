@@ -359,3 +359,25 @@ export interface PublicTrackingResponse {
   }>;
   updated_at: string;
 }
+
+export interface ClientBirthdayItem {
+  id: string;
+  applicant_id?: string | null;
+  created_by_id?: string | null;
+  client_name: string;
+  client_email: string;
+  birth_date: string;
+  custom_message?: string | null;
+  is_active: boolean;
+  last_sent_year?: number | null;
+  send_count: number;
+  last_sent_at?: string | null;
+  last_delivery_status?: string | null;
+  last_delivery_provider?: string | null;
+  last_delivery_detail?: string | null;
+  next_birthday_date: string;
+  days_until_birthday: number;
+  is_birthday_today: boolean;
+  created_at: string;
+  updated_at: string;
+}
